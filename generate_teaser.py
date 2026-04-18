@@ -74,9 +74,9 @@ class Config:
     # 特殊标记: "__INPUT__" = 输入图, "__GT__" = 真值图, "__OURS__" = 我们的模型
     COLUMNS = [
         ("Input",       "__INPUT__"),
-        ("PromptIR",    "promptir"),
-        ("Histoformer", "histoformer"),
-        ("MoCE-IR",     "moceir"),
+        ("PromptIR",    "promptir_scratch"),
+        ("Histoformer", "histoformer_scratch"),
+        ("MoCE-IR",     "moceir_scratch"),
         ("Ours",        "__OURS__"),
         ("GT",          "__GT__"),
     ]
