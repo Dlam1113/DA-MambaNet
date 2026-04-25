@@ -5,12 +5,13 @@
 特点：
   - 支持多行（不同退化场景）× 多列（不同模型）
   - 红色框 zoom-in 局部放大对比
-  - 每张小图右下角标注 PSNR / SSIM 数值
+  - 每张小图标注 PSNR / SSIM（从 measure.py 结果中预填，保证与论文一致）
   - 输出高分辨率 PDF + PNG
 
 使用方法：
-  1. 修改下方 CONFIG 区域的路径和参数
-  2. python generate_teaser.py
+  1. 先用 measure.py 计算各模型的单张图指标
+  2. 把指标填入下方 CONFIG 的 METRICS 字典
+  3. python generate_teaser.py
 """
 
 import os
@@ -18,11 +19,10 @@ import sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # 无显示器环境也能用
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from skimage.metrics import peak_signal_noise_ratio as psnr
-from skimage.metrics import structural_similarity as ssim
+# 指标直接从 Config.METRICS 读取（由 measure.py 预先计算），不再自行计算
 
 
 # ============================================================
@@ -88,6 +88,28 @@ class Config:
     ZOOM_BORDER_WIDTH = 3        # 红框边框宽度
     ZOOM_BORDER_COLOR = (255, 0, 0)  # 红框颜色 RGB
     
+    # --- 预计算指标（从 measure.py 的结果中手动填入） ---
+    # 格式: METRICS[(行filename, 列模型名)] = (PSNR, SSIM)
+    # 只需填写对比模型和 Ours 的指标，Input 和 GT 会自动跳过
+    # ⚠ 先在服务器上运行 measure.py 得到每张图的指标，再填到这里
+    METRICS = {
+        # --- Rain 行 ---
+        ("rain_v1_aachen_000004_000019.png", "PromptIR"):    (0.00, 0.0000),  # ← 替换为真实值
+        ("rain_v1_aachen_000004_000019.png", "Histoformer"): (0.00, 0.0000),
+        ("rain_v1_aachen_000004_000019.png", "MoCE-IR"):     (0.00, 0.0000),
+        ("rain_v1_aachen_000004_000019.png", "Ours"):        (0.00, 0.0000),
+        # --- Low-light 行 ---
+        ("dense_549.jpg", "PromptIR"):    (0.00, 0.0000),
+        ("dense_549.jpg", "Histoformer"): (0.00, 0.0000),
+        ("dense_549.jpg", "MoCE-IR"):     (0.00, 0.0000),
+        ("dense_549.jpg", "Ours"):        (0.00, 0.0000),
+        # --- Fog 行 ---
+        ("foggy_munster_000080_000019.png", "PromptIR"):    (0.00, 0.0000),
+        ("foggy_munster_000080_000019.png", "Histoformer"): (0.00, 0.0000),
+        ("foggy_munster_000080_000019.png", "MoCE-IR"):     (0.00, 0.0000),
+        ("foggy_munster_000080_000019.png", "Ours"):        (0.00, 0.0000),
+    }
+    
     LABEL_FONT_SIZE = 28         # 列标题字号
     METRIC_FONT_SIZE = 16        # PSNR/SSIM 标注字号
     ROW_LABEL_FONT_SIZE = 22     # 行标签字号
@@ -120,23 +142,6 @@ def load_and_resize(image_path, target_size):
     return np.array(img)
 
 
-def compute_metrics(restored, gt):
-    """
-    计算 PSNR 和 SSIM 指标
-    
-    参数:
-        restored: 恢复图像 numpy array [H, W, 3] uint8
-        gt: 真值图像 numpy array [H, W, 3] uint8
-    返回:
-        (psnr_val, ssim_val) 元组
-    """
-    try:
-        psnr_val = psnr(gt, restored, data_range=255)
-        ssim_val = ssim(gt, restored, data_range=255, channel_axis=2)
-        return psnr_val, ssim_val
-    except Exception as e:
-        print(f"  ⚠ 指标计算失败: {e}")
-        return 0.0, 0.0
 
 
 def add_zoom_patch(image, zoom_box, zoom_size, position="bottom-right", 
@@ -346,11 +351,16 @@ def generate_teaser(cfg):
             # 加载图片
             img = load_and_resize(img_path, cfg.CELL_SIZE)
             
-            # 计算 PSNR/SSIM（跳过 Input 和 GT 本身）
+            # 从预计算字典读取 PSNR/SSIM（跳过 Input 和 GT）
             show_metrics = col_dir not in ("__INPUT__", "__GT__")
+            psnr_val, ssim_val = 0.0, 0.0
             if show_metrics:
-                psnr_val, ssim_val = compute_metrics(img, gt_img)
-                print(f"    PSNR={psnr_val:.2f}, SSIM={ssim_val:.4f}")
+                metric_key = (filename, col_label)
+                if metric_key in cfg.METRICS:
+                    psnr_val, ssim_val = cfg.METRICS[metric_key]
+                    print(f"    PSNR={psnr_val:.2f}, SSIM={ssim_val:.4f} (预填值)")
+                else:
+                    print(f"    ⚠ METRICS 中未找到 {metric_key}，显示 0.00")
             
             # 添加 zoom-in 放大图
             img = add_zoom_patch(
