@@ -37,13 +37,13 @@ class Config:
     COMPARISON_DIR = "/home/Bjj/comparison_models/comparison_results"
     
     # --- 恶劣天气数据集（雨天+雾天）的输入和GT目录 ---
-    INPUT_DIR = os.path.join(BASE_DIR, "filtered/combined_pedestrian_val_input")
-    GT_DIR = os.path.join(BASE_DIR, "filtered/combined_pedestrian_val_gt")
+    INPUT_DIR = os.path.join(BASE_DIR, "filtered/combined_pedestrian_val_noll_input")
+    GT_DIR = os.path.join(BASE_DIR, "filtered/combined_pedestrian_val_noll_gt")
     OURS_DIR = os.path.join(BASE_DIR, "results/fid_best")
     
     # --- LOLv1 低光照数据集路径 ---
-    LOLV1_INPUT_DIR = "/home/Bjj/comparison_models/LOLv1/input"   # ← 修改为实际路径
-    LOLV1_GT_DIR = "/home/Bjj/comparison_models/LOLv1/gt"         # ← 修改为实际路径
+    LOLV1_INPUT_DIR = "/home/Bjj/HVI-CIDNet-clean/datasets/LOLdataset/eval15/low"   # ← 修改为实际路径
+    LOLV1_GT_DIR = "/home/Bjj/HVI-CIDNet-clean/datasets/LOLdataset/eval15/high"         # ← 修改为实际路径
     LOLV1_OURS_DIR = os.path.join(BASE_DIR, "results/lolv1_best") # ← 修改为实际路径
     
     # --- 输出文件路径 ---
@@ -58,7 +58,7 @@ class Config:
     ROWS = [
         {
             "label": "Rain",
-            "filename": "rain_v1_aachen_000004_000019.png",  # 雨天场景示例
+            "filename": "rain_v6_munster_000041_000019.png",  # 雨天场景示例
             "zoom_box": [0.35, 0.25, 0.25, 0.35],
             "dataset": "weather",
         },
@@ -70,7 +70,7 @@ class Config:
         },
         {
             "label": "Fog",
-            "filename": "foggy_munster_000080_000019.png",  # 雾天场景示例
+            "filename": "foggy_munster_000078_000019.png",  # 雾天场景示例
             "zoom_box": [0.4, 0.3, 0.25, 0.3],
             "dataset": "weather",
         },
@@ -101,20 +101,20 @@ class Config:
     # ⚠ 先在服务器上运行 measure.py 得到每张图的指标，再填到这里
     METRICS = {
         # --- Rain 行 ---
-        ("rain_v1_aachen_000004_000019.png", "PromptIR"):    (0.00, 0.0000),  # ← 替换为真实值
-        ("rain_v1_aachen_000004_000019.png", "Histoformer"): (0.00, 0.0000),
-        ("rain_v1_aachen_000004_000019.png", "MoCE-IR"):     (0.00, 0.0000),
-        ("rain_v1_aachen_000004_000019.png", "Ours"):        (0.00, 0.0000),
+        ("rain_v6_munster_000041_000019.png", "PromptIR"):    (0.00, 0.0000),  # ← 替换为真实值
+        ("rain_v6_munster_000041_000019.png", "Histoformer"): (0.00, 0.0000),
+        ("rain_v6_munster_000041_000019.png", "MoCE-IR"):     (0.00, 0.0000),
+        ("rain_v6_munster_000041_00₀₀₁₉.png", "Ours"):        (0.<PASSWORD>, <PASSWORD>),
         # --- Low-light 行 (LOLv1) ---
         ("1.png", "PromptIR"):    (0.00, 0.0000),  # ← LOLv1 图片指标
         ("1.png", "Histoformer"): (0.00, 0.0000),
         ("1.png", "MoCE-IR"):     (0.00, 0.0000),
         ("1.png", "Ours"):        (0.00, 0.0000),
         # --- Fog 行 ---
-        ("foggy_munster_000080_000019.png", "PromptIR"):    (0.00, 0.0000),
-        ("foggy_munster_000080_000019.png", "Histoformer"): (0.00, 0.0000),
-        ("foggy_munster_000080_000019.png", "MoCE-IR"):     (0.00, 0.0000),
-        ("foggy_munster_000080_000019.png", "Ours"):        (0.00, 0.0000),
+        ("foggy_munster_000078_000019.png", "PromptIR"):    (0.00, 0.0000),
+        ("foggy_munster_000078_000019.png", "Histoformer"): (0.00, 0.0000),
+        ("foggy_munster_000078_000019.png", "MoCE-IR"):     (0.00, 0.0000),
+        ("foggy_munster_000078_000019.png", "Ours"):        (0.00, 0.0000),
     }
     
     LABEL_FONT_SIZE = 28         # 列标题字号
