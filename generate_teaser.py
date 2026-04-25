@@ -22,7 +22,9 @@ import matplotlib
 matplotlib.use('Agg')  # 无显示器环境也能用
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-# 指标直接从 Config.METRICS 读取（由 measure.py 预先计算），不再自行计算
+from skimage.metrics import peak_signal_noise_ratio as calc_psnr
+from skimage.metrics import structural_similarity as calc_ssim
+# 指标优先从 Config.METRICS 读取；未预填时自动计算
 
 
 # ============================================================
@@ -373,16 +375,24 @@ def generate_teaser(cfg):
             # 加载图片
             img = load_and_resize(img_path, cfg.CELL_SIZE)
             
-            # 从预计算字典读取 PSNR/SSIM（跳过 Input 和 GT）
+            # 获取 PSNR/SSIM（跳过 Input 和 GT）
+            # 优先使用 METRICS 预填值，否则自动计算
             show_metrics = col_dir not in ("__INPUT__", "__GT__")
             psnr_val, ssim_val = 0.0, 0.0
             if show_metrics:
                 metric_key = (filename, col_label)
-                if metric_key in cfg.METRICS:
+                if metric_key in cfg.METRICS and cfg.METRICS[metric_key] != (0.00, 0.0000):
+                    # 使用手动预填的指标（来自 measure.py）
                     psnr_val, ssim_val = cfg.METRICS[metric_key]
                     print(f"    PSNR={psnr_val:.2f}, SSIM={ssim_val:.4f} (预填值)")
                 else:
-                    print(f"    ⚠ METRICS 中未找到 {metric_key}，显示 0.00")
+                    # 自动计算指标
+                    try:
+                        psnr_val = calc_psnr(gt_img, img, data_range=255)
+                        ssim_val = calc_ssim(gt_img, img, data_range=255, channel_axis=2)
+                        print(f"    PSNR={psnr_val:.2f}, SSIM={ssim_val:.4f} (自动计算)")
+                    except Exception as e:
+                        print(f"    ⚠ 自动计算失败: {e}")
             
             # 添加 zoom-in 放大图
             img = add_zoom_patch(
