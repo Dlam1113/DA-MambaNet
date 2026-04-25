@@ -104,17 +104,18 @@ class Config:
         ("rain_v6_munster_000041_000019.png", "PromptIR"):    (0.00, 0.0000),  # ← 替换为真实值
         ("rain_v6_munster_000041_000019.png", "Histoformer"): (0.00, 0.0000),
         ("rain_v6_munster_000041_000019.png", "MoCE-IR"):     (0.00, 0.0000),
-        ("rain_v6_munster_000041_00₀₀₁₉.png", "Ours"):        (0.<PASSWORD>, <PASSWORD>),
-        # --- Low-light 行 (LOLv1) ---
-        ("1.png", "PromptIR"):    (0.00, 0.0000),  # ← LOLv1 图片指标
-        ("1.png", "Histoformer"): (0.00, 0.0000),
-        ("1.png", "MoCE-IR"):     (0.00, 0.0000),
-        ("1.png", "Ours"):        (0.00, 0.0000),
+        ("rain_v6_munster_000041_000019.png", "Ours"):        (0.00, 0.0000),
+        
         # --- Fog 行 ---
         ("foggy_munster_000078_000019.png", "PromptIR"):    (0.00, 0.0000),
         ("foggy_munster_000078_000019.png", "Histoformer"): (0.00, 0.0000),
         ("foggy_munster_000078_000019.png", "MoCE-IR"):     (0.00, 0.0000),
         ("foggy_munster_000078_000019.png", "Ours"):        (0.00, 0.0000),
+        # --- Low-light 行 (LOLv1) ---
+        ("1.png", "PromptIR"):    (0.00, 0.0000),  # ← LOLv1 图片指标
+        ("1.png", "Histoformer"): (0.00, 0.0000),
+        ("1.png", "MoCE-IR"):     (0.00, 0.0000),
+        ("1.png", "Ours"):        (0.00, 0.0000),
     }
     
     LABEL_FONT_SIZE = 28         # 列标题字号
