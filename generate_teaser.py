@@ -36,12 +36,15 @@ class Config:
     BASE_DIR = "/home/Bjj/HVI-CIDNet-clean"
     COMPARISON_DIR = "/home/Bjj/comparison_models/comparison_results"
     
-    # --- 输入和GT目录 ---
+    # --- 恶劣天气数据集（雨天+雾天）的输入和GT目录 ---
     INPUT_DIR = os.path.join(BASE_DIR, "filtered/combined_pedestrian_val_input")
     GT_DIR = os.path.join(BASE_DIR, "filtered/combined_pedestrian_val_gt")
-    
-    # --- 我们模型的输出目录 ---
     OURS_DIR = os.path.join(BASE_DIR, "results/fid_best")
+    
+    # --- LOLv1 低光照数据集路径 ---
+    LOLV1_INPUT_DIR = "/home/Bjj/comparison_models/LOLv1/input"   # ← 修改为实际路径
+    LOLV1_GT_DIR = "/home/Bjj/comparison_models/LOLv1/gt"         # ← 修改为实际路径
+    LOLV1_OURS_DIR = os.path.join(BASE_DIR, "results/lolv1_best") # ← 修改为实际路径
     
     # --- 输出文件路径 ---
     OUTPUT_DIR = os.path.join(BASE_DIR, "results/teaser")
@@ -51,21 +54,25 @@ class Config:
     # --- 每行配置：(场景标签, 图片文件名, zoom-in区域 [x, y, w, h] 归一化坐标) ---
     # zoom-in 区域坐标：[左上角x比例, 左上角y比例, 宽度比例, 高度比例]
     # 例如 [0.3, 0.2, 0.25, 0.3] 表示从图片 30%处开始, 20%处开始, 裁剪25%宽, 30%高
+    # dataset 字段: "weather" = 恶劣天气数据集, "lolv1" = LOLv1 低光照数据集
     ROWS = [
         {
             "label": "Rain",
             "filename": "rain_v1_aachen_000004_000019.png",  # 雨天场景示例
-            "zoom_box": [0.35, 0.25, 0.25, 0.35],  # 行人区域
+            "zoom_box": [0.35, 0.25, 0.25, 0.35],
+            "dataset": "weather",
         },
         {
             "label": "Low-light",
-            "filename": "dense_549.jpg",  # 低光照场景示例
+            "filename": "1.png",  # LOLv1 eval15 中的图片 ← 替换为你选的图
             "zoom_box": [0.3, 0.2, 0.3, 0.35],
+            "dataset": "lolv1",   # ← 使用 LOLv1 数据集路径
         },
         {
             "label": "Fog",
             "filename": "foggy_munster_000080_000019.png",  # 雾天场景示例
             "zoom_box": [0.4, 0.3, 0.25, 0.3],
+            "dataset": "weather",
         },
     ]
     
@@ -98,11 +105,11 @@ class Config:
         ("rain_v1_aachen_000004_000019.png", "Histoformer"): (0.00, 0.0000),
         ("rain_v1_aachen_000004_000019.png", "MoCE-IR"):     (0.00, 0.0000),
         ("rain_v1_aachen_000004_000019.png", "Ours"):        (0.00, 0.0000),
-        # --- Low-light 行 ---
-        ("dense_549.jpg", "PromptIR"):    (0.00, 0.0000),
-        ("dense_549.jpg", "Histoformer"): (0.00, 0.0000),
-        ("dense_549.jpg", "MoCE-IR"):     (0.00, 0.0000),
-        ("dense_549.jpg", "Ours"):        (0.00, 0.0000),
+        # --- Low-light 行 (LOLv1) ---
+        ("1.png", "PromptIR"):    (0.00, 0.0000),  # ← LOLv1 图片指标
+        ("1.png", "Histoformer"): (0.00, 0.0000),
+        ("1.png", "MoCE-IR"):     (0.00, 0.0000),
+        ("1.png", "Ours"):        (0.00, 0.0000),
         # --- Fog 行 ---
         ("foggy_munster_000080_000019.png", "PromptIR"):    (0.00, 0.0000),
         ("foggy_munster_000080_000019.png", "Histoformer"): (0.00, 0.0000),
@@ -271,26 +278,39 @@ def add_metric_label(image, psnr_val, ssim_val, font_size=16):
     return np.array(img_pil)
 
 
-def get_image_path(col_type, col_dir, filename, cfg):
+def get_image_path(col_type, col_dir, filename, cfg, dataset="weather"):
     """
-    根据列类型获取图片的实际路径
+    根据列类型和数据集类型获取图片的实际路径
     
     参数:
         col_type: 列标记（__INPUT__ / __GT__ / __OURS__ / 模型名）
         col_dir: 对应的目录名
         filename: 图片文件名
         cfg: Config 配置对象
+        dataset: 数据集类型 "weather" 或 "lolv1"
     返回:
         图片的完整文件路径
     """
-    if col_type == "__INPUT__":
-        return os.path.join(cfg.INPUT_DIR, filename)
-    elif col_type == "__GT__":
-        return os.path.join(cfg.GT_DIR, filename)
-    elif col_type == "__OURS__":
-        return os.path.join(cfg.OURS_DIR, filename)
+    if dataset == "lolv1":
+        # LOLv1 数据集使用单独的路径
+        if col_type == "__INPUT__":
+            return os.path.join(cfg.LOLV1_INPUT_DIR, filename)
+        elif col_type == "__GT__":
+            return os.path.join(cfg.LOLV1_GT_DIR, filename)
+        elif col_type == "__OURS__":
+            return os.path.join(cfg.LOLV1_OURS_DIR, filename)
+        else:
+            return os.path.join(cfg.COMPARISON_DIR, col_dir, filename)
     else:
-        return os.path.join(cfg.COMPARISON_DIR, col_dir, filename)
+        # 恶劣天气数据集（雨天+雾天）
+        if col_type == "__INPUT__":
+            return os.path.join(cfg.INPUT_DIR, filename)
+        elif col_type == "__GT__":
+            return os.path.join(cfg.GT_DIR, filename)
+        elif col_type == "__OURS__":
+            return os.path.join(cfg.OURS_DIR, filename)
+        else:
+            return os.path.join(cfg.COMPARISON_DIR, col_dir, filename)
 
 
 def generate_teaser(cfg):
@@ -334,18 +354,19 @@ def generate_teaser(cfg):
         scene_label = row_cfg["label"]
         filename = row_cfg["filename"]
         zoom_box = row_cfg["zoom_box"]
+        dataset = row_cfg.get("dataset", "weather")  # 读取数据集类型
         
-        print(f"\n--- 第 {row_idx+1} 行: {scene_label} ({filename}) ---")
+        print(f"\n--- 第 {row_idx+1} 行: {scene_label} ({filename}) [dataset={dataset}] ---")
         
-        # 先加载 GT 用于计算指标
-        gt_path = os.path.join(cfg.GT_DIR, filename)
+        # 先加载 GT
+        gt_path = get_image_path("__GT__", "__GT__", filename, cfg, dataset)
         gt_img = load_and_resize(gt_path, cfg.CELL_SIZE)
         
         for col_idx, (col_label, col_dir) in enumerate(cfg.COLUMNS):
             ax = axes[row_idx, col_idx]
             
-            # 获取图片路径
-            img_path = get_image_path(col_dir, col_dir, filename, cfg)
+            # 获取图片路径（根据行的 dataset 字段路由到正确目录）
+            img_path = get_image_path(col_dir, col_dir, filename, cfg, dataset)
             print(f"  [{col_label}] {img_path}")
             
             # 加载图片
@@ -416,8 +437,9 @@ if __name__ == '__main__':
     missing = 0
     for row_cfg in config.ROWS:
         fn = row_cfg["filename"]
+        ds = row_cfg.get("dataset", "weather")
         for col_label, col_dir in config.COLUMNS:
-            path = get_image_path(col_dir, col_dir, fn, config)
+            path = get_image_path(col_dir, col_dir, fn, config, ds)
             exists = os.path.exists(path)
             status = "✅" if exists else "❌"
             if not exists:
