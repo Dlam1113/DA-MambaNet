@@ -70,25 +70,25 @@ LOLV1_COLUMNS = [
 WEATHER_ROWS = [
     {
         "label": "Rain-1",
-        "filename": "rain_v6_munster_000041_000019.png",
+        "filename": "rain_v6_munster_000049_000019.png",
         "box_red":    [0.05, 0.10, 0.25, 0.35],   # ← 调整红框位置
         "box_yellow": [0.55, 0.30, 0.25, 0.35],   # ← 调整黄框位置
     },
     {
         "label": "Rain-2",
-        "filename": "rain_v1_aachen_000004_000019.png",
+        "filename": "rain_v5_munster_000044_000019.png",
         "box_red":    [0.30, 0.15, 0.25, 0.35],
         "box_yellow": [0.60, 0.40, 0.25, 0.30],
     },
     {
         "label": "Fog-1",
-        "filename": "foggy_munster_000078_000019.png",
+        "filename": "foggy_frankfurt_000001_012519.png",
         "box_red":    [0.10, 0.20, 0.25, 0.30],
         "box_yellow": [0.50, 0.25, 0.25, 0.35],
     },
     {
         "label": "Fog-2",
-        "filename": "foggy_munster_000080_000019.png",
+        "filename": "foggy_munster_000145_000019.png",
         "box_red":    [0.35, 0.15, 0.25, 0.30],
         "box_yellow": [0.60, 0.35, 0.25, 0.30],
     },
@@ -98,7 +98,7 @@ WEATHER_ROWS = [
 LOLV1_ROWS = [
     {
         "label": "Low-1",
-        "filename": "1.png",
+        "filename": "748.png",
         "box_red":    [0.10, 0.15, 0.30, 0.35],
         "box_yellow": [0.55, 0.30, 0.25, 0.35],
     },
@@ -110,7 +110,7 @@ LOLV1_ROWS = [
     },
     {
         "label": "Low-3",
-        "filename": "79.png",
+        "filename": "493.png",
         "box_red":    [0.05, 0.20, 0.25, 0.35],
         "box_yellow": [0.55, 0.25, 0.25, 0.35],
     },
