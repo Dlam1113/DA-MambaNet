@@ -209,15 +209,13 @@ def load_datasets():
             testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=1, shuffle=False)
         
         if opt.combined_pedestrian:
-            # 合并行人数据集：LoLI低光照 + Cityscapes雾天 + Cityscapes雨天
+            # 天气数据集：Cityscapes雾天 + Cityscapes雨天（已移除 LoLI 低光照）
             train_dirs = [
-                opt.data_pedestrian_loli,   # LoLI-Street 低光照行人（~3030对）
-                opt.data_pedestrian_foggy,  # Cityscapes 雾天行人（~2347对）
-                opt.data_pedestrian_rain,   # Cityscapes 雨天行人（~1092对）
+                opt.data_pedestrian_foggy,  # Cityscapes 雾天行人
+                opt.data_pedestrian_rain,   # Cityscapes 雨天行人
             ]
             val_dirs = [
-                opt.data_pedestrian_loli_val,   # LoLI 验证集（~273对）
-                opt.data_pedestrian_foggy_val,  # Foggy 验证集（~403对）
+                opt.data_pedestrian_foggy_val,  # Foggy 验证集
                 opt.data_pedestrian_rain_val,   # Rain 验证集
             ]
             train_set = get_combined_pedestrian_training_set(train_dirs, size=opt.cropSize)
@@ -406,9 +404,8 @@ if __name__ == '__main__':
                 # 合并数据集验证：直接在整体合并的 GT 上计算总指标（不再拆分子集）
                 import shutil
                 
-                # 三个子数据集的 GT 目录
+                # 两个天气子数据集的 GT 目录（已移除 loli）
                 gt_dirs = {
-                    'loli': opt.data_pedestrian_loli_val + '/high/',
                     'foggy': opt.data_pedestrian_foggy_val + '/high/',
                     'rain': opt.data_pedestrian_rain_val + '/high/',
                 }
