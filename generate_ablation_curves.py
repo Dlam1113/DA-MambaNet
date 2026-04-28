@@ -21,17 +21,24 @@ import os
 
 def parse_metrics_md(filepath):
     """
-    解析 metrics md 文件中的"整体 (Combined) 指标"表格
+    解析 metrics md 文件中的第一个「整体 (Combined) 指标」表格
+    （文件中可能有多个子集表格，只取第一个，遇到第二个表头就停止）
+    
     返回: dict { 'epochs': [...], 'psnr': [...], 'ssim': [...], 'lpips': [...] }
     """
     epochs, psnr, ssim, lpips = [], [], [], []
     in_table = False
+    found_first = False   # 是否已经找到并进入了第一个表格
 
     with open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
-            # 检测表头
+            # 检测表头行
             if '| Epochs |' in line and 'PSNR' in line:
+                if found_first:
+                    # 遇到第二个表头（子集表），立即停止
+                    break
                 in_table = True
+                found_first = True
                 continue
             if in_table:
                 # 跳过分隔行
@@ -42,6 +49,7 @@ def parse_metrics_md(filepath):
                 if m:
                     epochs.append(int(m.group(1)))
                     psnr.append(float(m.group(2)))
+
                     ssim.append(float(m.group(3)))
                     lpips.append(float(m.group(4)))
                 elif line.strip() == '' or line.strip().startswith('##'):
@@ -97,12 +105,37 @@ def smooth(y, window=5):
     if len(y) < window:
         return y
     kernel = np.ones(window) / window
-    # 边缘填充 (reflect)
     padded = np.pad(y, window//2, mode='reflect')
     return np.convolve(padded, kernel, mode='valid')[:len(y)]
 
 
-def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False):
+def resample(epochs, values, step):
+    """
+    按固定步长对 epoch 序列降采样，统一不同模型的采样间隔。
+    例如 step=50，则只保留 epoch 为 50 的倍数的点。
+    若原数据没有恰好整除的点，则取最近的那个点。
+    """
+    epochs = np.array(epochs)
+    values = np.array(values)
+    target_epochs = np.arange(epochs.min(), epochs.max() + step, step)
+    sampled_e, sampled_v = [], []
+    for te in target_epochs:
+        # 找最近的 epoch
+        idx = np.argmin(np.abs(epochs - te))
+        sampled_e.append(epochs[idx])
+        sampled_v.append(values[idx])
+    # 去重（防止同一个 idx 被取两次）
+    result_e, result_v = [], []
+    seen = set()
+    for e, v in zip(sampled_e, sampled_v):
+        if e not in seen:
+            seen.add(e)
+            result_e.append(e)
+            result_v.append(v)
+    return np.array(result_e), np.array(result_v)
+
+
+def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False, resample_step=None):
     """
     在一个子图上绘制多条曲线
 
@@ -111,7 +144,8 @@ def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False):
         data_list: list of dict, 每个dict有 name/color/style/data/hline
         metric_key: 'psnr' | 'ssim' | 'lpips'
         ylabel: Y轴标签
-        invert: True = Y轴越低越好（LPIPS），画图时不翻转但可在注释中提示
+        invert: True = Y轴越低越好（LPIPS），翻转 Y 轴
+        resample_step: int, 统一采样间隔（epoch步长）。None=不降采样
     """
     for d in data_list:
         if d.get('hline'):
@@ -124,10 +158,14 @@ def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False):
         else:
             epochs = np.array(d['data']['epochs'])
             values = np.array(d['data'][metric_key])
-            smoothed = smooth(values, window=7)
-            # 原始曲线（淡色）
-            ax.plot(epochs, values, color=d['color'], linewidth=0.6,
-                    alpha=0.25, linestyle='-')
+            # 降采样：统一步长
+            if resample_step is not None:
+                epochs, values = resample(epochs, values, step=resample_step)
+            smoothed = smooth(values, window=5)
+            # 原始曲线（淡色，仅在不降采样时显示以避免过于密集）
+            if resample_step is None:
+                ax.plot(epochs, values, color=d['color'], linewidth=0.6,
+                        alpha=0.25, linestyle='-')
             # 平滑曲线（实色）
             ax.plot(epochs, smoothed, color=d['color'],
                     label=d['name'], **STYLES[d['style']])
@@ -141,7 +179,8 @@ def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False):
         ax.set_title(ylabel + ' ↑', fontsize=11, fontweight='bold')
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.3f'))
     ax.grid(True, alpha=0.3, linestyle='--')
-    ax.legend(fontsize=9, loc='lower right' if not invert else 'upper right')
+    # 三张子图图例位置统一为右下角
+    ax.legend(fontsize=9, loc='lower right')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
@@ -183,9 +222,10 @@ def plot_weather_ablation():
     fig.suptitle('Ablation Study on Weather Dataset (Rain + Fog)',
                  fontsize=13, fontweight='bold', y=1.02)
 
-    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)')
-    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM')
-    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True)
+    # resample_step=50：统一每隔50epoch取一个点，消除不同模型步长不一致的问题
+    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=50)
+    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=50)
+    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=50)
 
     plt.tight_layout()
     out_png = os.path.join(OUTPUT_DIR, 'ablation_weather.png')
@@ -234,9 +274,10 @@ def plot_lolv1_ablation():
     fig.suptitle('Ablation Study on LOLv1 (eval15)',
                  fontsize=13, fontweight='bold', y=1.02)
 
-    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)')
-    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM')
-    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True)
+    # resample_step=50：统一每隔50epoch取一个点
+    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=50)
+    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=50)
+    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=50)
 
     plt.tight_layout()
     out_png = os.path.join(OUTPUT_DIR, 'ablation_lolv1.png')
