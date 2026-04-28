@@ -135,6 +135,30 @@ def resample(epochs, values, step):
     return np.array(result_e), np.array(result_v)
 
 
+def filter_epoch(data, min_epoch=0, max_epoch=None):
+    """
+    在数据层面过滤 epoch 范围，使 matplotlib 计算 Y 轴范围时
+    只考虑可见区间内的值，从而消除 Y 轴底部的大量空白。
+
+    参数:
+        data: parse_metrics_md 返回的 dict
+        min_epoch: 保留 epoch >= min_epoch 的数据
+        max_epoch: 保留 epoch <= max_epoch 的数据（None 表示不限）
+    返回: 过滤后的同结构 dict
+    """
+    filtered = {'epochs': [], 'psnr': [], 'ssim': [], 'lpips': []}
+    for i, e in enumerate(data['epochs']):
+        if e < min_epoch:
+            continue
+        if max_epoch is not None and e > max_epoch:
+            continue
+        filtered['epochs'].append(e)
+        filtered['psnr'].append(data['psnr'][i])
+        filtered['ssim'].append(data['ssim'][i])
+        filtered['lpips'].append(data['lpips'][i])
+    return filtered
+
+
 def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False, resample_step=None):
     """
     在一个子图上绘制多条曲线
@@ -200,6 +224,13 @@ def plot_weather_ablation():
     print(f"  +Refiner:    {len(refiner_data['epochs'])} 个检查点")
     print(f"  Full Model:  {len(full_data['epochs'])} 个检查点")
 
+    # Full Model 日志从 ep655 开始，在数据层面过滤掉 ep<650 的点
+    # 这样 matplotlib 计算 Y 轴范围时只考虑可见区间，消除底部大量空白
+    MIN_EP = 650
+    baseline_data = filter_epoch(baseline_data, min_epoch=MIN_EP)
+    refiner_data  = filter_epoch(refiner_data,  min_epoch=MIN_EP)
+    # full_data 本身从 ep655 开始，无需过滤
+
     data_list = [
         {
             'name': 'CIDNet (Baseline)',
@@ -226,10 +257,6 @@ def plot_weather_ablation():
     plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=50)
     plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=50)
     plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=50)
-
-    # Full Model 日志从 ep655 开始，统一将 X 轴裁剪到 650+ 保证三条线起点对齐
-    for ax in axes:
-        ax.set_xlim(left=650)
 
     plt.tight_layout()
     out_png = os.path.join(OUTPUT_DIR, 'ablation_weather.png')
