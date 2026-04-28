@@ -227,6 +227,10 @@ def plot_weather_ablation():
     plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=50)
     plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=50)
 
+    # Full Model 日志从 ep655 开始，统一将 X 轴裁剪到 650+ 保证三条线起点对齐
+    for ax in axes:
+        ax.set_xlim(left=650)
+
     plt.tight_layout()
     out_png = os.path.join(OUTPUT_DIR, 'ablation_weather.png')
     out_pdf = os.path.join(OUTPUT_DIR, 'ablation_weather.pdf')
