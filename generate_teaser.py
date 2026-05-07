@@ -65,16 +65,16 @@ class Config:
             "dataset": "weather",
         },
         {
-            "label": "Low-light",
-            "filename": "1.png",  # LOLv1 eval15 中的图片 ← 替换为你选的图
-            "zoom_box": [0.3, 0.2, 0.3, 0.35],
-            "dataset": "lolv1",   # ← 使用 LOLv1 数据集路径
-        },
-        {
             "label": "Fog",
             "filename": "foggy_munster_000078_000019.png",  # 雾天场景示例
             "zoom_box": [0.4, 0.3, 0.25, 0.3],
             "dataset": "weather",
+        },
+        {
+            "label": "Low-light",
+            "filename": "780.png",  # LOLv1 eval15 中的图片 ← 替换为你选的图
+            "zoom_box": [0.3, 0.2, 0.3, 0.35],
+            "dataset": "lolv1",   # ← 使用 LOLv1 数据集路径
         },
     ]
     
@@ -512,9 +512,27 @@ def export_teaser_materials(cfg):
             # 安全的文件名（去掉特殊字符）
             safe_name = col_label.replace(" ", "_")
             
-            # ---- 1. 保存原始输出（无标注） ----
+            # ---- 计算或读取 PSNR/SSIM（跳过 Input 和 GT） ----
+            show_metrics = col_dir not in ("__INPUT__", "__GT__")
+            psnr_val, ssim_val = 0.0, 0.0
+            if show_metrics:
+                metric_key = (filename, col_label)
+                if metric_key in cfg.METRICS and cfg.METRICS[metric_key] != (0.00, 0.0000):
+                    psnr_val, ssim_val = cfg.METRICS[metric_key]
+                else:
+                    try:
+                        psnr_val = calc_psnr(gt_img, img, data_range=255)
+                        ssim_val = calc_ssim(gt_img, img, data_range=255, channel_axis=2)
+                    except Exception as e:
+                        print(f"    ⚠ 指标计算失败: {e}")
+            
+            # ---- 1. 保存带 PSNR/SSIM 标注的图片 ----
+            if show_metrics:
+                img_labeled = add_metric_label(img, psnr_val, ssim_val, cfg.METRIC_FONT_SIZE)
+            else:
+                img_labeled = img
             out_clean = os.path.join(scene_dir, f"{safe_name}_clean.png")
-            Image.fromarray(img).save(out_clean, quality=95)
+            Image.fromarray(img_labeled).save(out_clean, quality=95)
             
             # ---- 2. 保存带 zoom-in 标注的版本 ----
             img_with_zoom = add_zoom_patch(
