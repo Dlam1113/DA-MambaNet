@@ -65,11 +65,11 @@ def parse_metrics_md(filepath):
 
 # md 文件路径（相对于脚本位置）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DOC_DIR = os.path.join(SCRIPT_DIR, 'doc')
+DOC_DIR = os.path.join(SCRIPT_DIR, 'results','metrics')
 
 # --- 大数据集（雨天+雾天，200张验证） ---
-WEATHER_BASELINE_MD = os.path.join(DOC_DIR, 'metrics2026-03-18-143143.md')  # CIDNet Baseline
-WEATHER_REFINER_MD  = os.path.join(DOC_DIR, 'metrics2026-04-28-065833.md')  # +RGB Refiner only
+WEATHER_BASELINE_MD = os.path.join(DOC_DIR, 'metrics2026-04-28-065833.md')  # CIDNet Baseline
+WEATHER_REFINER_MD  = os.path.join(DOC_DIR, 'metrics2026-03-18-143143.md')  # +RGB Refiner only
 WEATHER_FULL_MD     = os.path.join(DOC_DIR, 'metrics2026-03-27-040647.md')  # 完整模型（有曲线数据）
 
 # --- LOLv1（eval15, 15张验证） ---
@@ -100,7 +100,7 @@ STYLES = {
 }
 
 # 平滑函数（简单滑动平均，减少训练噪声）
-def smooth(y, window=5):
+def smooth(y, window=7):
     """对序列做滑动平均平滑"""
     if len(y) < window:
         return y
@@ -254,9 +254,9 @@ def plot_weather_ablation():
                  fontsize=13, fontweight='bold', y=1.02)
 
     # resample_step=50：统一每隔50epoch取一个点，消除不同模型步长不一致的问题
-    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=50)
-    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=50)
-    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=50)
+    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=25)
+    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=25)
+    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=25)
 
     plt.tight_layout()
     out_png = os.path.join(OUTPUT_DIR, 'ablation_weather.png')
