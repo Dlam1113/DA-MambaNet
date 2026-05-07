@@ -159,7 +159,8 @@ def filter_epoch(data, min_epoch=0, max_epoch=None):
     return filtered
 
 
-def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False, resample_step=None):
+def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False,
+                    resample_step=None, show_legend=True, subplot_tag=None):
     """
     在一个子图上绘制多条曲线
 
@@ -170,6 +171,8 @@ def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False, resample_st
         ylabel: Y轴标签
         invert: True = Y轴越低越好（LPIPS），翻转 Y 轴
         resample_step: int, 统一采样间隔（epoch步长）。None=不降采样
+        show_legend: 是否显示图例
+        subplot_tag: 子图标签，如 '(a)'，显示在左上角
     """
     for d in data_list:
         if d.get('hline'):
@@ -194,147 +197,141 @@ def plot_one_metric(ax, data_list, metric_key, ylabel, invert=False, resample_st
             ax.plot(epochs, smoothed, color=d['color'],
                     label=d['name'], **STYLES[d['style']])
 
-    ax.set_ylabel(ylabel, fontsize=11)
-    ax.set_xlabel('Epoch', fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=10)
+    ax.set_xlabel('Epoch', fontsize=10)
     if invert:
         ax.invert_yaxis()  # LPIPS 越低越好
-        ax.set_title(ylabel + ' ↓', fontsize=11, fontweight='bold')
-    else:
-        ax.set_title(ylabel + ' ↑', fontsize=11, fontweight='bold')
     ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.3f'))
     ax.grid(True, alpha=0.3, linestyle='--')
-    # 三张子图图例位置统一为右下角
-    ax.legend(fontsize=9, loc='lower right')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 
+    # 子图标签 (a)~(f)，显示在左上角
+    if subplot_tag:
+        ax.text(0.02, 0.95, subplot_tag, transform=ax.transAxes,
+                fontsize=12, fontweight='bold', va='top', ha='left',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+                          edgecolor='gray', alpha=0.8))
+
+    # 图例：仅在指定位置显示
+    if show_legend:
+        ax.legend(fontsize=7.5, loc='lower right')
+
 
 # ============================================================
-# 4. 图1：大数据集（雨天+雾天）消融曲线
+# 4. 合并消融曲线图（3行×2列，一张大图）
 # ============================================================
 
-def plot_weather_ablation():
-    """绘制天气数据集消融曲线"""
-    print("读取大数据集数据...")
-    baseline_data = parse_metrics_md(WEATHER_BASELINE_MD)
-    refiner_data  = parse_metrics_md(WEATHER_REFINER_MD)
-    full_data     = parse_metrics_md(WEATHER_FULL_MD)
+def plot_combined_ablation():
+    """
+    生成一张合并的消融曲线图：3行×2列
+    - 左列：天气数据集（Rain + Fog）
+    - 右列：LOLv1（eval15）
+    - 第1行：PSNR
+    - 第2行：SSIM
+    - 第3行：LPIPS
+    - 子图标签：(a)~(f)
+    """
 
-    print(f"  Baseline:    {len(baseline_data['epochs'])} 个检查点")
-    print(f"  +Refiner:    {len(refiner_data['epochs'])} 个检查点")
-    print(f"  Full Model:  {len(full_data['epochs'])} 个检查点")
+    # --- 读取天气数据集 ---
+    print("读取天气数据集数据...")
+    w_baseline = parse_metrics_md(WEATHER_BASELINE_MD)
+    w_refiner  = parse_metrics_md(WEATHER_REFINER_MD)
+    w_full     = parse_metrics_md(WEATHER_FULL_MD)
 
-    # Full Model 日志从 ep655 开始，在数据层面过滤掉 ep<650 的点
-    # 这样 matplotlib 计算 Y 轴范围时只考虑可见区间，消除底部大量空白
+    print(f"  Baseline:    {len(w_baseline['epochs'])} 个检查点")
+    print(f"  +Refiner:    {len(w_refiner['epochs'])} 个检查点")
+    print(f"  Full Model:  {len(w_full['epochs'])} 个检查点")
+
+    # Full Model 日志从 ep655 开始，过滤掉 ep<650 的点
     MIN_EP = 650
-    baseline_data = filter_epoch(baseline_data, min_epoch=MIN_EP)
-    refiner_data  = filter_epoch(refiner_data,  min_epoch=MIN_EP)
-    # full_data 本身从 ep655 开始，无需过滤
+    w_baseline = filter_epoch(w_baseline, min_epoch=MIN_EP)
+    w_refiner  = filter_epoch(w_refiner,  min_epoch=MIN_EP)
 
-    data_list = [
-        {
-            'name': 'CIDNet (Baseline)',
-            'color': COLORS['baseline'], 'style': 'baseline',
-            'data': baseline_data,
-        },
-        {
-            'name': '+RGB Refiner only',
-            'color': COLORS['refiner'], 'style': 'refiner',
-            'data': refiner_data,
-        },
-        {
-            'name': 'Full Model (Ours)',
-            'color': COLORS['full'], 'style': 'full',
-            'data': full_data,
-        },
+    weather_list = [
+        {'name': 'CIDNet (Baseline)', 'color': COLORS['baseline'],
+         'style': 'baseline', 'data': w_baseline},
+        {'name': '+RGB Refiner only', 'color': COLORS['refiner'],
+         'style': 'refiner', 'data': w_refiner},
+        {'name': 'Full Model (Ours)', 'color': COLORS['full'],
+         'style': 'full', 'data': w_full},
     ]
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
-    fig.suptitle('Ablation Study on Weather Dataset (Rain + Fog)',
-                 fontsize=13, fontweight='bold', y=1.02)
+    # --- 读取 LOLv1 数据 ---
+    print("\n读取 LOLv1 数据...")
+    l_baseline = parse_metrics_md(LOLV1_BASELINE_MD)
+    l_refiner  = parse_metrics_md(LOLV1_REFINER_MD)
+    l_full     = parse_metrics_md(LOLV1_FULL_MD)
 
-    # resample_step=50：统一每隔50epoch取一个点，消除不同模型步长不一致的问题
-    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=25)
-    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=25)
-    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=25)
+    print(f"  Baseline:   {len(l_baseline['epochs'])} 个检查点")
+    print(f"  +Refiner:   {len(l_refiner['epochs'])} 个检查点")
+    print(f"  Full Model: {len(l_full['epochs'])} 个检查点")
 
-    plt.tight_layout()
-    out_png = os.path.join(OUTPUT_DIR, 'ablation_weather.png')
-    out_pdf = os.path.join(OUTPUT_DIR, 'ablation_weather.pdf')
+    lolv1_list = [
+        {'name': 'CIDNet (Baseline)', 'color': COLORS['baseline'],
+         'style': 'baseline', 'data': l_baseline},
+        {'name': '+RGB Refiner only', 'color': COLORS['refiner'],
+         'style': 'refiner', 'data': l_refiner},
+        {'name': 'Full Model (Ours)', 'color': COLORS['full'],
+         'style': 'full', 'data': l_full},
+    ]
+
+    # --- 创建 3行×2列大图 ---
+    fig, axes = plt.subplots(3, 2, figsize=(10, 10))
+
+    # 列标题
+    axes[0, 0].set_title('Weather Dataset (Rain + Fog)', fontsize=11, fontweight='bold', pad=10)
+    axes[0, 1].set_title('LOLv1 Dataset (eval15)', fontsize=11, fontweight='bold', pad=10)
+
+    # 第1行：PSNR
+    # (a) 天气 PSNR
+    plot_one_metric(axes[0, 0], weather_list, 'psnr', 'PSNR (dB)',
+                    resample_step=25, show_legend=True, subplot_tag='(a)')
+    # (b) LOLv1 PSNR
+    plot_one_metric(axes[0, 1], lolv1_list, 'psnr', 'PSNR (dB)',
+                    resample_step=50, show_legend=False, subplot_tag='(b)')
+
+    # 第2行：SSIM
+    # (c) 天气 SSIM
+    plot_one_metric(axes[1, 0], weather_list, 'ssim', 'SSIM',
+                    resample_step=25, show_legend=False, subplot_tag='(c)')
+    # (d) LOLv1 SSIM
+    plot_one_metric(axes[1, 1], lolv1_list, 'ssim', 'SSIM',
+                    resample_step=50, show_legend=False, subplot_tag='(d)')
+
+    # 第3行：LPIPS（越低越好）
+    # (e) 天气 LPIPS
+    plot_one_metric(axes[2, 0], weather_list, 'lpips', 'LPIPS',
+                    invert=True, resample_step=25, show_legend=False, subplot_tag='(e)')
+    # (f) LOLv1 LPIPS
+    plot_one_metric(axes[2, 1], lolv1_list, 'lpips', 'LPIPS',
+                    invert=True, resample_step=50, show_legend=False, subplot_tag='(f)')
+
+    plt.tight_layout(h_pad=2.5, w_pad=2.0)
+
+    # 保存
+    out_png = os.path.join(OUTPUT_DIR, 'ablation_combined.png')
+    out_pdf = os.path.join(OUTPUT_DIR, 'ablation_combined.pdf')
     fig.savefig(out_png, dpi=300, bbox_inches='tight', facecolor='white')
     fig.savefig(out_pdf, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close(fig)
-    print(f"  ✅ 已保存: {out_png}")
+    print(f"\n  ✅ 已保存: {out_png}")
     print(f"  ✅ 已保存: {out_pdf}")
 
 
 # ============================================================
-# 5. 图2：LOLv1 消融曲线
-# ============================================================
-
-def plot_lolv1_ablation():
-    """绘制 LOLv1 消融曲线"""
-    print("读取 LOLv1 数据...")
-    baseline_data = parse_metrics_md(LOLV1_BASELINE_MD)
-    refiner_data  = parse_metrics_md(LOLV1_REFINER_MD)
-    full_data     = parse_metrics_md(LOLV1_FULL_MD)
-
-    print(f"  Baseline:   {len(baseline_data['epochs'])} 个检查点")
-    print(f"  +Refiner:   {len(refiner_data['epochs'])} 个检查点")
-    print(f"  Full Model: {len(full_data['epochs'])} 个检查点")
-
-    data_list = [
-        {
-            'name': 'CIDNet (Baseline)',
-            'color': COLORS['baseline'], 'style': 'baseline',
-            'data': baseline_data,
-        },
-        {
-            'name': '+RGB Refiner only',
-            'color': COLORS['refiner'], 'style': 'refiner',
-            'data': refiner_data,
-        },
-        {
-            'name': 'Full Model (Ours)',
-            'color': COLORS['full'], 'style': 'full',
-            'data': full_data,
-        },
-    ]
-
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
-    fig.suptitle('Ablation Study on LOLv1 (eval15)',
-                 fontsize=13, fontweight='bold', y=1.02)
-
-    # resample_step=50：统一每隔50epoch取一个点
-    plot_one_metric(axes[0], data_list, 'psnr',  'PSNR (dB)', resample_step=50)
-    plot_one_metric(axes[1], data_list, 'ssim',  'SSIM',      resample_step=50)
-    plot_one_metric(axes[2], data_list, 'lpips', 'LPIPS', invert=True, resample_step=50)
-
-    plt.tight_layout()
-    out_png = os.path.join(OUTPUT_DIR, 'ablation_lolv1.png')
-    out_pdf = os.path.join(OUTPUT_DIR, 'ablation_lolv1.pdf')
-    fig.savefig(out_png, dpi=300, bbox_inches='tight', facecolor='white')
-    fig.savefig(out_pdf, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.close(fig)
-    print(f"  ✅ 已保存: {out_png}")
-    print(f"  ✅ 已保存: {out_pdf}")
-
-
-# ============================================================
-# 6. 主函数
+# 5. 主函数
 # ============================================================
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("消融实验曲线图生成器")
+    print("消融实验曲线图生成器（合并版 3×2 大图）")
     print("=" * 50)
 
-    plot_weather_ablation()
-    print()
-    plot_lolv1_ablation()
+    plot_combined_ablation()
 
     print()
     print("=" * 50)
-    print("🎉 全部曲线图已生成！")
+    print("🎉 消融曲线图已生成！")
     print(f"   输出目录: {OUTPUT_DIR}")
     print("=" * 50)
