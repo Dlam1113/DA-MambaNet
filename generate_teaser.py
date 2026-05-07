@@ -440,8 +440,143 @@ def generate_teaser(cfg):
     print(f"{'=' * 60}")
 
 
+def generate_error_map(img, gt, colormap='hot'):
+    """
+    生成误差热力图（|Model - GT| 的彩色可视化）
+    
+    用于在 motivation figure 中直观展示模型输出与 GT 之间的差异。
+    红色/亮色区域 = 误差大（细节丢失/色偏严重）；蓝色/暗色 = 误差小。
+    
+    参数:
+        img: numpy array [H, W, 3] uint8 —— 模型输出图片
+        gt:  numpy array [H, W, 3] uint8 —— Ground Truth 图片
+        colormap: matplotlib colormap 名称（默认 'hot'）
+    返回:
+        error_map: numpy array [H, W, 3] uint8 —— 伪彩色误差图
+    """
+    # 计算绝对误差（灰度平均）
+    diff = np.abs(img.astype(float) - gt.astype(float)).mean(axis=2)
+    
+    # 归一化到 [0, 1]
+    diff_max = diff.max() if diff.max() > 0 else 1.0
+    diff_norm = diff / diff_max
+    
+    # 应用 colormap
+    cmap = plt.cm.get_cmap(colormap)
+    error_colored = (cmap(diff_norm)[:, :, :3] * 255).astype(np.uint8)
+    
+    return error_colored
+
+
+def export_teaser_materials(cfg):
+    """
+    导出 Motivation Figure 的底图素材
+    
+    为 PPT/Illustrator 组装三段式概念图提供高质量素材：
+    1. 每个模型的独立输出图片（原尺寸 + 带 zoom-in 标注）
+    2. zoom-in 区域的单独放大裁剪图（可在 PPT 中灵活放置）
+    3. 误差热力图（|Model - GT|，用于可视化细节丢失/色偏程度）
+    
+    参数:
+        cfg: Config 配置对象
+    """
+    print("=" * 60)
+    print("Motivation Figure 素材导出器")
+    print("=" * 60)
+    
+    # 创建素材输出目录
+    mat_dir = os.path.join(cfg.OUTPUT_DIR, "materials")
+    os.makedirs(mat_dir, exist_ok=True)
+    
+    for row_idx, row_cfg in enumerate(cfg.ROWS):
+        scene_label = row_cfg["label"]
+        filename = row_cfg["filename"]
+        zoom_box = row_cfg["zoom_box"]
+        dataset = row_cfg.get("dataset", "weather")
+        
+        print(f"\n--- 场景: {scene_label} ({filename}) ---")
+        
+        # 为每个场景创建子目录
+        scene_dir = os.path.join(mat_dir, f"{row_idx+1}_{scene_label}")
+        os.makedirs(scene_dir, exist_ok=True)
+        
+        # 先加载 GT（用于差异图计算）
+        gt_path = get_image_path("__GT__", "__GT__", filename, cfg, dataset)
+        gt_img = load_and_resize(gt_path, cfg.CELL_SIZE)
+        
+        for col_label, col_dir in cfg.COLUMNS:
+            # 获取图片路径
+            img_path = get_image_path(col_dir, col_dir, filename, cfg, dataset)
+            img = load_and_resize(img_path, cfg.CELL_SIZE)
+            
+            # 安全的文件名（去掉特殊字符）
+            safe_name = col_label.replace(" ", "_")
+            
+            # ---- 1. 保存原始输出（无标注） ----
+            out_clean = os.path.join(scene_dir, f"{safe_name}_clean.png")
+            Image.fromarray(img).save(out_clean, quality=95)
+            
+            # ---- 2. 保存带 zoom-in 标注的版本 ----
+            img_with_zoom = add_zoom_patch(
+                img, zoom_box, cfg.ZOOM_SIZE,
+                position=cfg.ZOOM_POSITION,
+                border_width=cfg.ZOOM_BORDER_WIDTH,
+                border_color=cfg.ZOOM_BORDER_COLOR
+            )
+            out_zoom = os.path.join(scene_dir, f"{safe_name}_with_zoom.png")
+            Image.fromarray(img_with_zoom).save(out_zoom, quality=95)
+            
+            # ---- 3. 导出单独的 zoom-in 裁剪图 ----
+            H, W = img.shape[:2]
+            x_r, y_r, w_r, h_r = zoom_box
+            cx, cy = int(x_r * W), int(y_r * H)
+            cw, ch = int(w_r * W), int(h_r * H)
+            crop = img[cy:cy+ch, cx:cx+cw]
+            # 放大到更大尺寸（便于 PPT 中使用）
+            crop_large = np.array(Image.fromarray(crop).resize((256, 256), Image.LANCZOS))
+            out_crop = os.path.join(scene_dir, f"{safe_name}_crop_256.png")
+            Image.fromarray(crop_large).save(out_crop, quality=95)
+            
+            # ---- 4. 生成误差热力图（跳过 Input 和 GT） ----
+            if col_dir not in ("__INPUT__", "__GT__"):
+                error_map = generate_error_map(img, gt_img, colormap='hot')
+                out_err = os.path.join(scene_dir, f"{safe_name}_error_map.png")
+                Image.fromarray(error_map).save(out_err, quality=95)
+                
+                # 误差 zoom-in 裁剪
+                err_crop = error_map[cy:cy+ch, cx:cx+cw]
+                err_crop_large = np.array(Image.fromarray(err_crop).resize((256, 256), Image.LANCZOS))
+                out_err_crop = os.path.join(scene_dir, f"{safe_name}_error_crop_256.png")
+                Image.fromarray(err_crop_large).save(out_err_crop, quality=95)
+                
+                print(f"  ✅ {col_label}: clean + zoom + crop + error_map")
+            else:
+                print(f"  ✅ {col_label}: clean + zoom + crop")
+    
+    print(f"\n{'=' * 60}")
+    print(f"✅ 全部素材已导出到: {mat_dir}")
+    print(f"{'=' * 60}")
+    print(f"\n📋 素材目录结构:")
+    print(f"   {mat_dir}/")
+    for row_idx, row_cfg in enumerate(cfg.ROWS):
+        scene_label = row_cfg["label"]
+        print(f"   ├── {row_idx+1}_{scene_label}/")
+        for col_label, _ in cfg.COLUMNS:
+            safe = col_label.replace(" ", "_")
+            print(f"   │   ├── {safe}_clean.png       (无标注原图)")
+            print(f"   │   ├── {safe}_with_zoom.png   (带红框和zoom-in)")
+            print(f"   │   ├── {safe}_crop_256.png    (zoom区域放大裁剪)")
+            if col_label not in ("Input", "GT"):
+                print(f"   │   ├── {safe}_error_map.png   (全图误差热力图)")
+                print(f"   │   └── {safe}_error_crop_256.png (zoom区域误差)")
+
+
 if __name__ == '__main__':
     config = Config()
+    
+    # ====== 模式选择 ======
+    # 命令行参数: --materials 仅导出素材, 不加参数则生成完整 teaser
+    export_mode = '--materials' in sys.argv
     
     # ====== 快速自检：列出所有需要的文件 ======
     print("\n🔍 文件自检:")
@@ -464,4 +599,10 @@ if __name__ == '__main__':
         print("  所有文件就绪! ✅")
     
     print()
-    generate_teaser(config)
+    
+    if export_mode:
+        # 导出素材模式（用于 PPT/AI 组装 motivation figure）
+        export_teaser_materials(config)
+    else:
+        # 传统模式（生成完整拼接 teaser 图）
+        generate_teaser(config)
