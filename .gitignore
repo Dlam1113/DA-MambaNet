@@ -188,3 +188,7 @@ IEEE-Transactions-LaTeX2e-templates-and-instructions/
 architecture.drawio
 introduction.txt
 paper/
+
+# --- 新增的排除项 (AI 建议) ---
+*.pdf
+.vscode/
