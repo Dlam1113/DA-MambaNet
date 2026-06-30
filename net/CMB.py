@@ -35,14 +35,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
-# ---------- 依赖导入（优雅降级处理）----------
-# 在 Windows 本地开发环境中，mamba-ssm 不可用（需要 Linux + CUDA）
-# 使用伪 Mamba 模块保证代码在 Windows 上可运行和测试
+# ---------- 依赖导入（三级降级策略）----------
+# 优先级：mamba-ssm（CUDA加速，Linux服务器）
+#         → MambaPure（纯PyTorch，Windows本地开发）
+#         → MockMamba（线性层模拟，最后兜底）
+
+MAMBA_BACKEND = "mock"  # 记录实际使用的后端
+
 try:
-    from mamba_ssm import Mamba as MambaSSM
+    from mamba_ssm import Mamba as _MambaBackend
     MAMBA_AVAILABLE = True
+    MAMBA_BACKEND = "mamba_ssm"
 except ImportError:
-    MAMBA_AVAILABLE = False
+    try:
+        from net.mamba_pure import MambaPure as _MambaBackend
+        MAMBA_AVAILABLE = True
+        MAMBA_BACKEND = "mamba_pure"
+    except ImportError:
+        _MambaBackend = None
+        MAMBA_AVAILABLE = False
+        MAMBA_BACKEND = "mock"
 
 # 从项目现有模块导入
 from net.transformer_utils import LayerNorm
@@ -56,49 +68,45 @@ from net.FiLM import FiLMLayer
 
 class MockMamba(nn.Module):
     """
-    伪 Mamba 模块（仅用于 Windows 本地代码调试和 shape 验证）
+    MockMamba 兜底实现（最后降级层，仅用于环境缺失时的语法检查）
 
-    用真实 Mamba 的接口（输入 (B, L, D)，输出 (B, L, D)），
-    但内部只用 Linear + 残差实现，不涉及任何 CUDA 编译。
-
-    警告：此模块不具备真实 Mamba 的选择性记忆能力，仅用于开发阶段验证。
+    警告：此模块不具备任何 SSM 能力，仅保证代码能运行不报错。
+    正常情况下不应使用此模块（MambaPure 或 mamba-ssm 均优先）。
     """
     def __init__(self, d_model: int, d_state: int = 16, d_conv: int = 4, expand: int = 2):
         super().__init__()
-        # 用两层线性层模拟 Mamba 的输入-输出映射
         inner_dim = d_model * expand
         self.in_proj  = nn.Linear(d_model, inner_dim)
         self.out_proj = nn.Linear(inner_dim, d_model)
         self.act      = nn.SiLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        参数：x: (B, L, D)
-        返回：(B, L, D)
-        """
+        """参数：x: (B, L, D)  返回：(B, L, D)"""
         return self.out_proj(self.act(self.in_proj(x)))
 
 
 def build_mamba(d_model: int, d_state: int = 16, d_conv: int = 4, expand: int = 2):
     """
-    构建 Mamba 层的工厂函数。
+    Mamba 层工厂函数（三级降级）
     
-    在 Linux + mamba-ssm 环境中返回真实 Mamba；
-    在 Windows 开发环境中返回 MockMamba。
+    返回优先级：
+    1. mamba_ssm.Mamba   → Linux 服务器（CUDA 加速，训练用）
+    2. MambaPure         → Windows 本地（纯 PyTorch，调试用）
+    3. MockMamba         → 最后兜底（无 SSM 能力，仅语法检查）
     
     参数：
-        d_model: 模型维度（通道数）
-        d_state: SSM 状态空间维度（越大，记忆容量越大，计算越慢）
-        d_conv:  局部卷积核大小（用于 Mamba 内部的局部上下文建模）
-        expand:  通道扩展倍数（内部维度 = d_model * expand）
-    
-    返回：
-        Mamba 层或 MockMamba 层（接口兼容）
+        d_model: 模型维度
+        d_state: SSM 状态空间维度
+        d_conv:  局部卷积核大小
+        expand:  通道扩展倍数
     """
     if MAMBA_AVAILABLE:
-        return MambaSSM(d_model=d_model, d_state=d_state, d_conv=d_conv, expand=expand)
+        # 使用已确定的后端（mamba_ssm 或 MambaPure）
+        return _MambaBackend(d_model=d_model, d_state=d_state,
+                             d_conv=d_conv, expand=expand)
     else:
-        return MockMamba(d_model=d_model, d_state=d_state, d_conv=d_conv, expand=expand)
+        return MockMamba(d_model=d_model, d_state=d_state,
+                         d_conv=d_conv, expand=expand)
 
 
 class SS2D(nn.Module):
@@ -421,10 +429,15 @@ if __name__ == '__main__':
     import sys
     print("=" * 60)
     print(f"CMB（条件化 Mamba 块）单元测试")
-    print(f"mamba-ssm 是否可用: {MAMBA_AVAILABLE}")
-    if not MAMBA_AVAILABLE:
-        print("[提示] 当前使用 MockMamba（Windows 开发模式），shape 验证有效，SSM 能力待服务器验证")
+    print(f"Mamba 后端: {MAMBA_BACKEND}")
+    if MAMBA_BACKEND == "mamba_ssm":
+        print("[最优] 使用 mamba-ssm（CUDA 加速）")
+    elif MAMBA_BACKEND == "mamba_pure":
+        print("[本地] 使用 MambaPure（纯 PyTorch，Windows 开发模式）")
+    else:
+        print("[降级] 使用 MockMamba（无 SSM 能力，仅语法检查）")
     print("=" * 60)
+
 
     batch_size = 2
     cond_dim   = 4   # DAM 输出维度

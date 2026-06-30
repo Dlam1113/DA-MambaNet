@@ -117,4 +117,43 @@ def option():
                         help='仅使用 LoLI-Street 低光照数据集训练与验证')
     parser.add_argument('--combined_pedestrian', type=bool, default=False,
                         help='使用合并行人数据集（LoLI低光照+Cityscapes雾天+雨天）')
+
+    # ========== DA-MambaNet 专用配置 ==========
+    parser.add_argument('--da_mamba', type=bool, default=False,
+                        help='是否使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
+    parser.add_argument('--num_classes', type=int, default=3,
+                        help='退化类型分类数（默认3: 雨/雾/低光）')
+    parser.add_argument('--d_state', type=int, default=16,
+                        help='Mamba SSM 状态空间维度（越大记忆容量越强，计算量越大）')
+    parser.add_argument('--dam_cls_weight', type=float, default=0.0,
+                        help='DAM 分类辅助损失权重（0表示禁用，推荐有标签时设为0.1）')
+
+    # ========== AllInOne 混合数据集路径（DA-MambaNet 专用）==========
+    parser.add_argument('--allinone', type=bool, default=False,
+                        help='是否使用 AllInOne 混合数据集（低光+雾+雨三合一）')
+    parser.add_argument('--allinone_balance', type=bool, default=False,
+                        help='是否按退化类别平衡 AllInOne 数据集')
+    # 低光照训练集（支持多个路径，用逗号分隔）
+    parser.add_argument('--data_lol_dirs', type=str,
+                        default='./datasets/LOLv1/train,./datasets/LOLv2/Real_captured/Train',
+                        help='低光照训练集路径，多个用逗号分隔')
+    # 雾天训练集
+    parser.add_argument('--data_fog_dirs', type=str,
+                        default='./datasets/cityscapes_foggy/train',
+                        help='雾天训练集路径，多个用逗号分隔')
+    # 雨天训练集
+    parser.add_argument('--data_rain_dirs', type=str,
+                        default='./datasets/Rain100H/train,./datasets/Rain100L/train',
+                        help='雨天训练集路径，多个用逗号分隔')
+    # 验证集（每种退化类型一个路径）
+    parser.add_argument('--data_lol_val', type=str,
+                        default='./datasets/LOLv1/eval15',
+                        help='低光照验证集路径')
+    parser.add_argument('--data_fog_val', type=str,
+                        default='./datasets/cityscapes_foggy/val',
+                        help='雾天验证集路径')
+    parser.add_argument('--data_rain_val', type=str,
+                        default='./datasets/Rain100H/test',
+                        help='雨天验证集路径')
+
     return parser

@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn.functional as F
 import random
 from torchvision import transforms
 import torch.optim as optim
@@ -8,6 +9,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from net.CIDNet import CIDNet
 from net.DualSpaceCIDNet import DualSpaceCIDNet  # 双空间CIDNet
+from net.DA_MambaNet import DA_MambaNet            # DA-MambaNet（退化感知Mamba）
 from data.options import option
 from measure import metrics
 from eval import eval
@@ -83,17 +85,38 @@ def train(epoch, writer=None):
             input_img = im1
         
         gt_rgb = im2
-        
-       
-        # 串联DualSpaceCIDNet与原CIDNet使用完全一致的损失结构
-        # DualSpaceCIDNet: 输入 → RGB Block → 增强RGB → HVI空间CIDNet处理 → 输出
-        # 原CIDNet:        输入 → HVI空间CIDNet处理 → 输出
-        output_rgb = model(input_img)  # 两种模型都直接返回tensor
+
+        # ===================================================================
+        # 前向传播（兼容三种模型的不同返回值）
+        # CIDNet / DualSpaceCIDNet：直接返回 tensor (B, 3, H, W)
+        # DA_MambaNet：返回 (output_rgb, d)，d 是退化条件向量
+        # ===================================================================
+        if opt.da_mamba:
+            # DA-MambaNet 返回 (图像, 退化条件向量)
+            output_rgb, deg_cond = model(input_img)
+        else:
+            output_rgb = model(input_img)
+            deg_cond = None
+
         output_hvi = model.HVIT(output_rgb)
         gt_hvi = model.HVIT(gt_rgb)
         loss_hvi = L1_loss(output_hvi, gt_hvi) + D_loss(output_hvi, gt_hvi) + E_loss(output_hvi, gt_hvi) + opt.P_weight * P_loss(output_hvi, gt_hvi)[0]
         loss_rgb = L1_loss(output_rgb, gt_rgb) + D_loss(output_rgb, gt_rgb) + E_loss(output_rgb, gt_rgb) + opt.P_weight * P_loss(output_rgb, gt_rgb)[0]
         loss = loss_rgb + opt.HVI_weight * loss_hvi
+
+        # ===================================================================
+        # DAM 辅助分类损失（仅 DA-MambaNet，可选）
+        # 用 opt.dag_labels 传入退化类型标签（0=雨, 1=雾, 2=低光）
+        # 若数据集未提供标签则跳过（无监督模式下 DAM 仍通过梯度间接学习）
+        # ===================================================================
+        if opt.da_mamba and opt.dam_cls_weight > 0 and deg_cond is not None:
+            # batch[4] 为退化类型标签（如有），否则跳过
+            if len(batch) > 4 and batch[4] is not None:
+                deg_labels = batch[4].cuda().long()   # (B,) 类别标签
+                # DAM 分类 logits（从 deg_cond[:, :num_classes] 计算）
+                cls_logits = deg_cond[:, :opt.num_classes]
+                loss_cls = F.cross_entropy(cls_logits, deg_labels)
+                loss = loss + opt.dam_cls_weight * loss_cls
         
         iter += 1
         
@@ -222,18 +245,65 @@ def load_datasets():
             training_data_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=opt.shuffle)
             test_set = get_combined_pedestrian_eval_set(val_dirs, eval_size=opt.eval_size)
             testing_data_loader = DataLoader(dataset=test_set, num_workers=opt.threads, batch_size=1, shuffle=False)
-        
+
         # （已删除三个单独子数据集的训练代码，统一使用 combined_pedestrian）
+
+    elif opt.allinone:
+        # ===== DA-MambaNet 专用：多退化 All-in-One 混合数据集 =====
+        print('===> 加载 AllInOne 多退化混合数据集（低光+雾+雨）')
+
+        # 解析逗号分隔的路径列表
+        lol_dirs  = [d.strip() for d in opt.data_lol_dirs.split(',')  if d.strip()]
+        fog_dirs  = [d.strip() for d in opt.data_fog_dirs.split(',')  if d.strip()]
+        rain_dirs = [d.strip() for d in opt.data_rain_dirs.split(',') if d.strip()]
+
+        train_set = get_allinone_training_set(
+            lol_dirs  = lol_dirs,
+            fog_dirs  = fog_dirs,
+            rain_dirs = rain_dirs,
+            crop_size = opt.cropSize,
+            balance   = opt.allinone_balance,
+        )
+        training_data_loader = DataLoader(
+            dataset    = train_set,
+            num_workers= opt.threads,
+            batch_size = opt.batchSize,
+            shuffle    = opt.shuffle,
+        )
+
+        # 验证集：三种退化分别验证（对标论文通常分开报告指标）
+        val_dirs   = [opt.data_lol_val, opt.data_fog_val, opt.data_rain_val]
+        val_labels = [0, 1, 2]  # 0=低光, 1=雾, 2=雨
+        test_set = get_allinone_eval_set(val_dirs, val_labels)
+        testing_data_loader = DataLoader(
+            dataset    = test_set,
+            num_workers= opt.threads,
+            batch_size = 1,
+            shuffle    = False,
+        )
+
     else:
         raise ValueError("should choose a dataset")
     return training_data_loader, testing_data_loader
 
+
 def build_model():
-    """构建CIDNet或DualSpaceCIDNet模型"""
+    """构建模型（支持 CIDNet / DualSpaceCIDNet / DA_MambaNet）"""
     print('===> Building model ')
-    
-    # 根据配置选择模型
-    if opt.dual_space:
+
+    # 根据配置选择模型（优先级：da_mamba > dual_space > 原始 CIDNet）
+    if opt.da_mamba:
+        print('===> 使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
+        print(f'  - num_classes={opt.num_classes}（退化类型数：{opt.num_classes}）')
+        print(f'  - d_state={opt.d_state}（Mamba SSM 状态维度）')
+        model = DA_MambaNet(
+            channels   = [36, 36, 72, 144],
+            num_classes= opt.num_classes,
+            d_state    = opt.d_state,
+            d_conv     = 4,
+            expand     = 2,
+        ).cuda()
+    elif opt.dual_space:
         print('===> 使用 DualSpaceCIDNet (v3: CIDNet + RGB后处理)')
         if opt.use_curve:
             print('===> 启用神经曲线层消融实验 (I通道全局调整)')
@@ -250,7 +320,11 @@ def build_model():
     else:
         print('===> 使用原始 CIDNet')
         model = CIDNet().cuda()
-    
+
+    # 打印参数量
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f'===> 模型参数量: {total_params/1e6:.3f}M')
+
     if opt.start_epoch > 0:
         pth = f"./weights/train/epoch_{opt.start_epoch}.pth"
         model.load_state_dict(torch.load(pth, map_location=lambda storage, loc: storage))
