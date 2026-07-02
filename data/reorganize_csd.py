@@ -48,8 +48,8 @@ from pathlib import Path
 from tqdm import tqdm
 
 
-# 支持的图像格式
-IMG_EXTS = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff'}
+# 支持的图像格式（包含 .tif，CSD 数据集使用此格式）
+IMG_EXTS = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif'}
 
 
 def is_image(fname: str) -> bool:
