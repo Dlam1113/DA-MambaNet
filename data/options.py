@@ -121,8 +121,8 @@ def option():
     # ========== DA-MambaNet 专用配置 ==========
     parser.add_argument('--da_mamba', type=bool, default=False,
                         help='是否使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
-    parser.add_argument('--num_classes', type=int, default=3,
-                        help='退化类型分类数（默认3: 雨/雾/低光）')
+    parser.add_argument('--num_classes', type=int, default=5,
+                        help='退化类型分类数（5类: 低光/雾/雨/雪/模糊）')
     parser.add_argument('--d_state', type=int, default=16,
                         help='Mamba SSM 状态空间维度（越大记忆容量越强，计算量越大）')
     parser.add_argument('--dam_cls_weight', type=float, default=0.0,
@@ -145,15 +145,29 @@ def option():
     parser.add_argument('--data_rain_dirs', type=str,
                         default='./datasets/Rain100H/train,./datasets/Rain100L/train',
                         help='雨天训练集路径，多个用逗号分隔')
+    # 雪天训练集
+    parser.add_argument('--data_snow_dirs', type=str,
+                        default='./datasets/Snow_train',
+                        help='雪天训练集路径，多个用逗号分隔')
+    # 运动模糊训练集
+    parser.add_argument('--data_blur_dirs', type=str,
+                        default='./datasets/GoPro/train',
+                        help='运动模糊训练集路径，多个用逗号分隔')
     # 验证集（每种退化类型一个路径）
     parser.add_argument('--data_lol_val', type=str,
                         default='./datasets/LOLv1/eval15',
                         help='低光照验证集路径')
     parser.add_argument('--data_fog_val', type=str,
-                        default='./datasets/cityscapes_foggy/val',
+                        default='./datasets/Fog_val',
                         help='雾天验证集路径')
     parser.add_argument('--data_rain_val', type=str,
-                        default='./datasets/Rain100H/test',
+                        default='./datasets/Rain_val',
                         help='雨天验证集路径')
+    parser.add_argument('--data_snow_val', type=str,
+                        default='./datasets/Snow_val',
+                        help='雪天验证集路径')
+    parser.add_argument('--data_blur_val', type=str,
+                        default='./datasets/GoPro/test',
+                        help='运动模糊验证集路径')
 
     return parser

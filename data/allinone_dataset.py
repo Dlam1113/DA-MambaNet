@@ -2,28 +2,32 @@
 DA-MambaNet 专用多退化 All-in-One 数据集
 
 功能：
-    将三类退化数据集（低光照 / 雾天 / 雨天）混合为统一训练集，
+    将五类退化数据集（低光照 / 雾天 / 雨天 / 雪天 / 运动模糊）混合为统一训练集，
     并为每张图像附加退化类型标签，供 DAM 分类辅助损失使用。
 
-退化类型标签定义：
-    0 → 低光照（Low-light，如 LOLv1/LOLv2/LoLI-Street）
-    1 → 雾天（Fog/Haze，如 Cityscapes Foggy）
-    2 → 雨天（Rain，如 Cityscapes Rain/Rain100H/Rain100L）
+退化类型标签定义（5类）：
+    0 → 低光照（Low-light，如 LOLv1）
+    1 → 雾天（Fog/Haze，如 Cityscapes Foggy / RESIDE）
+    2 → 雨天（Rain，如 Rain100H / Rain100L）
+    3 → 雪天（Snow，如 CSD）
+    4 → 运动模糊（Blur，如 GoPro）
 
 数据集目录结构（每种退化类型相同）：
     <dataset_root>/
-    ├── low/     ← 退化输入图像（低光照 or 有雾 or 有雨）
+    ├── low/     ← 退化输入图像
     └── high/    ← 对应清洁 GT 图像
 
 使用示例：
     dataset = AllInOneDataset(
-        lol_dirs   = ['./datasets/LOLv1/train', './datasets/LOLv2/train'],
-        fog_dirs   = ['./datasets/cityscapes_foggy/train'],
-        rain_dirs  = ['./datasets/rain100H/train'],
+        lol_dirs   = ['./datasets/LOLv1/train'],
+        fog_dirs   = ['./datasets/Fog_train'],
+        rain_dirs  = ['./datasets/Rain_train'],
+        snow_dirs  = ['./datasets/Snow_train'],
+        blur_dirs  = ['./datasets/GoPro/train'],
         transform  = transform_train(256)
     )
     # dataset[i] 返回 (im_low, im_gt, filename_low, filename_gt, label)
-    # label: 0=低光, 1=雾, 2=雨
+    # label: 0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
 
 作者：DA-MambaNet 项目
 """
@@ -37,12 +41,20 @@ from os.path import join
 from data.util import is_image_file, load_img
 
 
-# 退化类型标签映射
+# ============================================================
+# 退化类型标签映射（5类）
+# 修改这里会同步影响 DAM 的分类头输出维度
+# 务必与 train.py 中的 --num_classes 参数保持一致
+# ============================================================
 DEGRADATION_LABELS = {
     'lowlight': 0,   # 低光照
     'fog':      1,   # 雾天
     'rain':     2,   # 雨天
+    'snow':     3,   # 雪天
+    'blur':     4,   # 运动模糊
 }
+NUM_CLASSES = len(DEGRADATION_LABELS)   # = 5
+
 
 
 class AllInOneDataset(data.Dataset):
@@ -64,20 +76,35 @@ class AllInOneDataset(data.Dataset):
     """
 
     def __init__(self, lol_dirs=None, fog_dirs=None, rain_dirs=None,
+                 snow_dirs=None, blur_dirs=None,
                  transform=None, balance=False):
+        """
+        初始化五退化混合数据集
+
+        参数：
+            lol_dirs:   低光照数据集目录列表
+            fog_dirs:   雾天数据集目录列表
+            rain_dirs:  雨天数据集目录列表
+            snow_dirs:  雪天数据集目录列表（新增，CSD等）
+            blur_dirs:  运动模糊数据集目录列表（新增，GoPro等）
+            transform:  图像变换函数
+            balance:    是否按类别平衡样本数量
+        """
         super(AllInOneDataset, self).__init__()
         self.transform = transform
 
         # 存储所有样本 (low_path, high_path, label)
         self.samples = []
 
-        # 按类别分别收集样本
-        class_samples = {0: [], 1: [], 2: []}
+        # 按类别分别收集样本（5类）
+        class_samples = {i: [] for i in range(NUM_CLASSES)}
 
         for label, dirs in [
             (DEGRADATION_LABELS['lowlight'], lol_dirs  or []),
             (DEGRADATION_LABELS['fog'],      fog_dirs  or []),
             (DEGRADATION_LABELS['rain'],     rain_dirs or []),
+            (DEGRADATION_LABELS['snow'],     snow_dirs or []),
+            (DEGRADATION_LABELS['blur'],     blur_dirs or []),
         ]:
             for data_dir in dirs:
                 low_dir  = os.path.join(data_dir, 'low')
@@ -107,16 +134,17 @@ class AllInOneDataset(data.Dataset):
 
                 print(f"  ✅ {label_name}({label}): {data_dir} → {len(low_files)} 对")
 
-        # 按类别平衡
+        # 按类别平衡（欠采样多数类到最少类的数量）
         if balance:
-            # 找到数量最多的类，其余类重复采样到相同数量
-            max_count = max(len(v) for v in class_samples.values() if v)
-            for label, samps in class_samples.items():
-                if not samps:
-                    continue
-                while len(samps) < max_count:
-                    samps.extend(samps[:max_count - len(samps)])
-            print(f"  [平衡] 每类数量均衡到 {max_count}")
+            counts = [len(v) for v in class_samples.values() if v]
+            if counts:
+                max_count = max(counts)
+                for label, samps in class_samples.items():
+                    if not samps:
+                        continue
+                    while len(samps) < max_count:
+                        samps.extend(samps[:max_count - len(samps)])
+                print(f"  [平衡] 每类数量均衡到 {max_count}")
 
         for label, samps in class_samples.items():
             self.samples.extend(samps)
@@ -124,12 +152,14 @@ class AllInOneDataset(data.Dataset):
         # 打乱顺序（避免按类别顺序训练）
         random.shuffle(self.samples)
 
-        # 统计
-        n = {0: 0, 1: 0, 2: 0}
+        # 统计各类数量
+        n = {i: 0 for i in range(NUM_CLASSES)}
         for _, _, l in self.samples:
             n[l] += 1
-        print(f"\n  [AllInOneDataset] 总计 {len(self.samples)} 对:")
-        print(f"    低光照(0): {n[0]} | 雾天(1): {n[1]} | 雨天(2): {n[2]}")
+        label_names = {v: k for k, v in DEGRADATION_LABELS.items()}
+        print(f"\n  [AllInOneDataset] 总计 {len(self.samples)} 对（{NUM_CLASSES}类退化）:")
+        for i in range(NUM_CLASSES):
+            print(f"    {label_names[i]}({i}): {n[i]} 对")
 
     def __getitem__(self, index):
         """
@@ -247,14 +277,17 @@ class AllInOneEvalDataset(data.Dataset):
 # 便捷工厂函数（供 train.py 的 load_datasets 调用）
 # ==============================================================================
 def get_allinone_training_set(lol_dirs, fog_dirs, rain_dirs,
+                               snow_dirs=None, blur_dirs=None,
                                crop_size=256, balance=False):
     """
-    构建 DA-MambaNet 多退化训练集。
+    构建 DA-MambaNet 多退化训练集（5类退化）。
 
     参数：
         lol_dirs:    低光照数据集目录列表
         fog_dirs:    雾天数据集目录列表
         rain_dirs:   雨天数据集目录列表
+        snow_dirs:   雪天数据集目录列表（CSD等）
+        blur_dirs:   运动模糊数据集目录列表（GoPro等）
         crop_size:   随机裁剪大小
         balance:     是否按类别平衡
     返回：
@@ -270,6 +303,8 @@ def get_allinone_training_set(lol_dirs, fog_dirs, rain_dirs,
         lol_dirs  = lol_dirs,
         fog_dirs  = fog_dirs,
         rain_dirs = rain_dirs,
+        snow_dirs = snow_dirs,
+        blur_dirs = blur_dirs,
         transform = transform,
         balance   = balance,
     )

@@ -249,18 +249,22 @@ def load_datasets():
         # （已删除三个单独子数据集的训练代码，统一使用 combined_pedestrian）
 
     elif opt.allinone:
-        # ===== DA-MambaNet 专用：多退化 All-in-One 混合数据集 =====
-        print('===> 加载 AllInOne 多退化混合数据集（低光+雾+雨）')
+        # ===== DA-MambaNet 专用：多退化 All-in-One 混合数据集（5类）=====
+        print('===> 加载 AllInOne 多退化混合数据集（低光+雾+雨+雪+模糊，共5类）')
 
         # 解析逗号分隔的路径列表
         lol_dirs  = [d.strip() for d in opt.data_lol_dirs.split(',')  if d.strip()]
         fog_dirs  = [d.strip() for d in opt.data_fog_dirs.split(',')  if d.strip()]
         rain_dirs = [d.strip() for d in opt.data_rain_dirs.split(',') if d.strip()]
+        snow_dirs = [d.strip() for d in opt.data_snow_dirs.split(',') if d.strip()]
+        blur_dirs = [d.strip() for d in opt.data_blur_dirs.split(',') if d.strip()]
 
         train_set = get_allinone_training_set(
             lol_dirs  = lol_dirs,
             fog_dirs  = fog_dirs,
             rain_dirs = rain_dirs,
+            snow_dirs = snow_dirs,
+            blur_dirs = blur_dirs,
             crop_size = opt.cropSize,
             balance   = opt.allinone_balance,
         )
@@ -271,9 +275,10 @@ def load_datasets():
             shuffle    = opt.shuffle,
         )
 
-        # 验证集：三种退化分别验证（对标论文通常分开报告指标）
-        val_dirs   = [opt.data_lol_val, opt.data_fog_val, opt.data_rain_val]
-        val_labels = [0, 1, 2]  # 0=低光, 1=雾, 2=雨
+        # 验证集：5种退化分别验证
+        val_dirs   = [opt.data_lol_val, opt.data_fog_val, opt.data_rain_val,
+                      opt.data_snow_val, opt.data_blur_val]
+        val_labels = [0, 1, 2, 3, 4]   # 0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
         test_set = get_allinone_eval_set(val_dirs, val_labels)
         testing_data_loader = DataLoader(
             dataset    = test_set,
