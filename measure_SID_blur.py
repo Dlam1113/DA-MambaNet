@@ -14,7 +14,7 @@ mea_parser = argparse.ArgumentParser(description='Measure')
 mea_parser.add_argument('--use_GT_mean', action='store_true', help='Use the mean of GT to rectify the output of the model')
 mea_parser.add_argument('--SID', action='store_true')
 mea_parser.add_argument('--Blur', action='store_true')
-mea = mea_parser.parse_args()
+mea, _ = mea_parser.parse_known_args()
 
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in [".png", ".jpg", ".bmp", ".JPG", ".jpeg"])

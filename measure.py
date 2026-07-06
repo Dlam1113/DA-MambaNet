@@ -19,7 +19,7 @@ mea_parser.add_argument('--lol_v2_syn', action='store_true', help='measure lol_v
 mea_parser.add_argument('--SICE_grad', action='store_true', help='measure SICE_grad dataset')
 mea_parser.add_argument('--SICE_mix', action='store_true', help='measure SICE_mix dataset')
 mea_parser.add_argument('--fivek', action='store_true', help='measure fivek dataset')
-mea = mea_parser.parse_args()
+mea, _ = mea_parser.parse_known_args()
 
 def ssim(prediction, target):
     C1 = (0.01 * 255)**2

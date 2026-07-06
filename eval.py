@@ -33,7 +33,7 @@ eval_parser.add_argument('--alpha', type=float, default=1.0)
 eval_parser.add_argument('--gamma', type=float, default=1.0)
 eval_parser.add_argument('--unpaired_weights', type=str, default='./weights/LOLv2_syn/w_perc.pth')
 
-ep = eval_parser.parse_args()
+ep, _ = eval_parser.parse_known_args()
 
 
 def eval(model, testing_data_loader, model_path, output_folder,norm_size=True,LOL=False,v2=False,unpaired=False,#unpaired是指未配对的数据集
