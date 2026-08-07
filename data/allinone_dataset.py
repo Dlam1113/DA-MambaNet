@@ -1,21 +1,25 @@
 """
 DA-MambaNet 专用多退化 All-in-One 数据集
 
-功能：
-    将五类退化数据集（低光照 / 雾天 / 雨天 / 雪天 / 运动模糊）混合为统一训练集，
-    并为每张图像附加退化类型标签，供 DAM 分类辅助损失使用。
+功能描述：
+    本项目使用统一的框架处理多种图像退化问题。此模块负责将五类退化数据集
+    （低光照 / 雾天 / 雨天 / 雪天 / 运动模糊）混合构建为统一的训练和验证集，
+    并为每个样本自动生成退化类型标签，主要用于训练过程中的退化感知模块（DAM）
+    的分类辅助损失，帮助网络感知当前的退化类型。
 
-退化类型标签定义（5类）：
-    0 → 低光照（Low-light，如 LOLv1）
-    1 → 雾天（Fog/Haze，如 Cityscapes Foggy / RESIDE）
-    2 → 雨天（Rain，如 Rain100H / Rain100L）
-    3 → 雪天（Snow，如 CSD）
-    4 → 运动模糊（Blur，如 GoPro）
+退化类型标签映射定义（5类）：
+    0 → 低光照（Low-light，例如 LOLv1 数据集）
+    1 → 雾天（Fog/Haze，例如 Cityscapes Foggy / RESIDE 数据集）
+    2 → 雨天（Rain，例如 Rain100H / Rain100L 数据集）
+    3 → 雪天（Snow，例如 CSD 去雪数据集）
+    4 → 运动模糊（Blur，例如 GoPro 运动去模糊数据集）
 
-数据集目录结构（每种退化类型相同）：
+数据集目录结构约定：
+    所有的退化数据集（不论原格式如何）在输入此模块前，都需要被重新组织成相同的结构：
     <dataset_root>/
-    ├── low/     ← 退化输入图像
-    └── high/    ← 对应清洁 GT 图像
+    ├── low/     ← 存放退化输入图像（低质量图像：有雾、有雨、模糊等）
+    └── high/    ← 存放对应的清洁 GT（Ground Truth）图像（高质量清晰图像）
+    注意：low 和 high 文件夹中的图片必须是一一对应的（通常要求文件名相同或按排序匹配）。
 
 使用示例：
     dataset = AllInOneDataset(
@@ -26,8 +30,7 @@ DA-MambaNet 专用多退化 All-in-One 数据集
         blur_dirs  = ['./datasets/GoPro/train'],
         transform  = transform_train(256)
     )
-    # dataset[i] 返回 (im_low, im_gt, filename_low, filename_gt, label)
-    # label: 0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
+    # dataset[i] 将返回 (im_low, im_gt, filename_low, filename_gt, label)
 
 作者：DA-MambaNet 项目
 """
@@ -165,28 +168,36 @@ class AllInOneDataset(data.Dataset):
         """
         获取一个训练样本
 
+        参数：
+            index: 样本索引
+
         返回：
-            im_low:     退化输入图像 Tensor (3, H, W)
-            im_gt:      清洁 GT 图像 Tensor (3, H, W)
-            file_low:   低质量图像文件名（调试用）
-            file_gt:    GT 图像文件名（调试用）
-            label:      退化类型标签 int (0=低光, 1=雾, 2=雨)
+            im_low:     退化输入图像 Tensor，维度为 (C, H, W) -> (3, H, W)
+            im_gt:      清洁 GT 图像 Tensor，维度为 (C, H, W) -> (3, H, W)
+            file_low:   低质量图像文件名（用于调试和记录）
+            file_gt:    GT 图像文件名（用于调试和记录）
+            label:      退化类型标签 int（0=低光, 1=雾, 2=雨, 3=雪, 4=模糊）
         """
         low_path, high_path, label = self.samples[index]
 
+        # 读取图像为张量 (C, H, W)
         im_low = load_img(low_path)
         im_gt  = load_img(high_path)
 
         _, file_low = os.path.split(low_path)
         _, file_gt  = os.path.split(high_path)
 
-        # 同步随机数种子：确保 low/high 做完全相同的空间变换
+        # 同步随机数种子：深度学习中对于图像恢复任务，
+        # 必须确保输入图像 (im_low) 和标签图像 (im_gt) 进行完全相同的空间变换（如随机裁剪、翻转），
+        # 否则网络将无法学习到正确的像素级映射关系。
         seed = random.randint(1, 1_000_000)
         if self.transform:
+            # 对退化图像进行变换
             random.seed(seed)
             torch.manual_seed(seed)
             im_low = self.transform(im_low)
 
+            # 对清晰图像进行完全相同的变换
             random.seed(seed)
             torch.manual_seed(seed)
             im_gt = self.transform(im_gt)
@@ -238,11 +249,16 @@ class AllInOneEvalDataset(data.Dataset):
 
     def __getitem__(self, index):
         """
+        获取一个验证样本
+
+        参数：
+            index: 样本索引
+
         返回：
-            input_img:  退化输入 Tensor
+            input_img:  退化输入 Tensor，维度为 (3, H, W)
             filename:   文件名
-            h, w:       原始高宽（用于去掉 padding）
-            label:      退化类型
+            h, w:       原始图像的高度和宽度（用于评估后去掉 padding，计算真实的指标）
+            label:      退化类型（用于分类统计指标）
         """
         import torch.nn.functional as F
 

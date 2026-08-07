@@ -89,22 +89,26 @@ class FiLMGenerator(nn.Module):
         """
         前向传播：条件向量 → (γ, β)
         
-        参数：
-            d: 退化条件向量 (B, cond_dim)
+        Args:
+            d (torch.Tensor): 退化条件向量，形状为 (B, cond_dim)
         
-        返回：
-            gamma: 缩放系数 (B, channels)
-            beta:  平移系数 (B, channels)
+        Returns:
+            gamma (torch.Tensor): 缩放系数，形状为 (B, channels)
+            beta (torch.Tensor):  平移系数，形状为 (B, channels)
         
         使用示例：
             gamma, beta = film_gen(d)
             # 将 (B, C) 广播到特征图 (B, C, H, W)
             feat = gamma[:, :, None, None] * feat + beta[:, :, None, None]
         """
-        # 生成器输出：(B, channels * 2)
+        # 生成器通过全连接网络处理输入条件
+        # 维度变化: (B, cond_dim) -> (B, hidden_dim) -> (B, channels * 2)
         params = self.generator(d)
-        # 沿最后一维切分为 γ 和 β
-        gamma, beta = params.chunk(2, dim=-1)  # 各 (B, channels)
+        
+        # chunk(2, dim=-1): 沿最后一个维度将张量平分为两份
+        # 第一份作为缩放系数 γ，第二份作为平移系数 β
+        # 维度变化: (B, channels * 2) -> 两个 (B, channels)
+        gamma, beta = params.chunk(2, dim=-1)  
         return gamma, beta
 
 
@@ -128,20 +132,29 @@ class FiLMLayer(nn.Module):
 
     def forward(self, feat: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
         """
-        FiLM 条件调制：γ ⊙ F + β
+        FiLM 条件调制：对输入特征进行通道级别的仿射变换
+        数学公式: FiLM(F | γ, β) = γ ⊙ F + β
         
-        参数：
-            feat: 输入特征图 (B, C, H, W)
-            d:    退化条件向量 (B, cond_dim)
+        Args:
+            feat (torch.Tensor): 输入特征图，形状为 (B, C, H, W)
+            d (torch.Tensor):    退化条件向量，形状为 (B, cond_dim)
         
-        返回：
-            调制后的特征图 (B, C, H, W)
+        Returns:
+            torch.Tensor: 调制后的特征图，形状保持不变 (B, C, H, W)
         """
-        gamma, beta = self.film_gen(d)                # 各 (B, C)
-        # 广播：(B, C) → (B, C, 1, 1)，自动广播到 (B, C, H, W)
-        gamma = gamma.unsqueeze(-1).unsqueeze(-1)      # (B, C, 1, 1)
-        beta  = beta.unsqueeze(-1).unsqueeze(-1)       # (B, C, 1, 1)
-        return gamma * feat + beta                     # 元素级仿射变换
+        # 第一步：根据退化信息 d 生成通道特定的调制参数
+        # 维度变化: d (B, cond_dim) -> gamma (B, C), beta (B, C)
+        gamma, beta = self.film_gen(d)                
+        
+        # 第二步：扩展维度，利用广播机制(Broadcasting)使其能与四维图像特征匹配
+        # 维度变化: (B, C) -> (B, C, 1) -> (B, C, 1, 1)
+        gamma = gamma.unsqueeze(-1).unsqueeze(-1)      
+        beta  = beta.unsqueeze(-1).unsqueeze(-1)       
+        
+        # 第三步：元素级仿射变换 (Element-wise Affine Transformation)
+        # gamma * feat 控制各通道特征的缩放（>1强化，<1抑制，<0反转）
+        # + beta 调整各通道特征的基线激活值
+        return gamma * feat + beta                     
 
 
 # ==============================================================================

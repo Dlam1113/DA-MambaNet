@@ -1,34 +1,40 @@
 """
 CSD 数据集重组采样脚本
 ====================
-将 CSD (Comprehensive Snow Dataset) 原始结构重组为
-AllInOneDataset 要求的 low/high 格式，并采样指定数量。
+
+模块描述：
+    深度学习数据预处理脚本。此脚本专门用于处理 CSD (Comprehensive Snow Dataset) 去雪数据集。
+    它的主要功能是将 CSD 原始的目录结构转换（重组）为 DA-MambaNet 中 AllInOneDataset 
+    要求的标准化 low/high 双文件夹格式。同时，支持随机采样指定数量的图像对，用于构建更轻量级的训练/验证集。
+    本脚本支持处理 .tif 格式的高位深图像数据。
+
+退化类型：
+    雪天（Snow）-> 标签通常在主模型中映射为 3。
 
 CSD 原始结构：
     CSD_raw/
     ├── Train/
-    │   ├── Snow/   ← 含雪图像（退化输入）
-    │   ├── Gt/     ← 清洁GT图像
-    │   └── Mask/   ← 雪花掩码（本脚本忽略）
+    │   ├── Snow/   ← 含雪图像（退化输入 low）
+    │   ├── Gt/     ← 清洁GT图像（清晰目标 high）
+    │   └── Mask/   ← 雪花掩码（本脚本忽略此文件夹，仅使用 Snow 和 Gt）
     └── Test/
         ├── Snow/
         ├── Gt/
         └── Mask/
 
-重组后结构（与 AllInOneDataset 兼容）：
+重组后结构约定（完全兼容 AllInOneDataset）：
     Snow_train/
-    ├── low/    ← 含雪图像（采样 n_train 张）
-    └── high/   ← 清洁图像
+    ├── low/    ← 含雪图像（随机采样 n_train 张）
+    └── high/   ← 对应清晰图像
     Snow_val/
-    ├── low/    ← 含雪图像（采样 n_val 张）
-    └── high/
+    ├── low/    ← 含雪图像（随机采样 n_val 张）
+    └── high/   ← 对应清晰图像
 
 注意：
-    - Snow/ 和 Gt/ 中文件名相同，一一对应，直接按排序后的索引采样
-    - Mask/ 目录不用于本项目，直接忽略
+    - Snow/ 和 Gt/ 中文件名相同，表示一一对应的样本对，代码会按排序后的索引进行匹配采样。
+    - 随机采样的过程通过设置固定的随机种子(--seed)保证每次运行的采样结果是完全可复现的。
 
-使用方法（服务器端执行）：
-    cd ~/DA_Mamba
+使用方法（服务器终端执行）：
     python data/reorganize_csd.py \
         --csd_root  ./datasets/CSD_raw \
         --out_train ./datasets/Snow_train \

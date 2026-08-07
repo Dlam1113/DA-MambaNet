@@ -56,15 +56,27 @@ class DepthwiseSeparableConv(nn.Module):
         """
         前向传播：深度卷积 → 逐点卷积 → BN → ReLU
         
-        参数：
-            x: 输入特征图 (B, in_ch, H, W)
-        返回：
-            输出特征图 (B, out_ch, H/stride, W/stride)
+        Args:
+            x (torch.Tensor): 输入特征图，形状为 (B, in_ch, H, W)。B代表批次大小(Batch Size)，in_ch代表输入通道数。
+            
+        Returns:
+            torch.Tensor: 输出特征图，形状为 (B, out_ch, H/stride, W/stride)。由于卷积可能设置了步长，宽高会对应缩小。
         """
-        x = self.depthwise(x)    # 空间信息混合（通道独立）
-        x = self.pointwise(x)    # 跨通道信息混合
-        x = self.bn(x)           # 批归一化，稳定训练
-        return self.act(x)       # ReLU 激活
+        # 第一步：深度卷积 (Depthwise Conv)。对每个输入通道独立进行空间卷积，提取局部特征但不混合通道。
+        # 形状变化: (B, in_ch, H, W) -> (B, in_ch, H/stride, W/stride)
+        x = self.depthwise(x)    
+        
+        # 第二步：逐点卷积 (Pointwise Conv)。使用 1x1 卷积，在通道维度上进行线性组合，混合跨通道信息。
+        # 形状变化: (B, in_ch, H/stride, W/stride) -> (B, out_ch, H/stride, W/stride)
+        x = self.pointwise(x)    
+        
+        # 第三步：批归一化 (Batch Normalization)。使特征分布均值接近0，方差接近1。
+        # 数学公式: y = (x - mean) / sqrt(var + eps) * gamma + beta
+        x = self.bn(x)           
+        
+        # 第四步：ReLU 激活函数。引入非线性，过滤掉小于0的特征激活值。
+        # 数学公式: f(x) = max(0, x)
+        return self.act(x)
 
 
 class DegradationAwareModule(nn.Module):
@@ -163,11 +175,11 @@ class DegradationAwareModule(nn.Module):
         """
         前向传播：退化图像 → 条件向量
         
-        参数：
-            x: 退化输入图像 (B, 3, H, W)，数值范围 [0, 1]
+        Args:
+            x (torch.Tensor): 退化输入图像，形状 (B, 3, H, W)，数值范围 [0, 1]
         
-        返回：
-            d: 退化条件向量 (B, num_classes + 1)
+        Returns:
+            d (torch.Tensor): 退化条件向量，形状 (B, num_classes + 1)
                - d[:, :num_classes]：退化类型概率（Softmax，和为1）
                - d[:, -1:]：退化程度估计（Sigmoid，范围[0,1]）
         
@@ -175,22 +187,31 @@ class DegradationAwareModule(nn.Module):
             d = [0.8, 0.1, 0.1, 0.7]
                  雨↑   雾   低光  严重程度0.7
         """
-        # 主干特征提取（B, 3, H, W → B, 64, H/8, W/8）
+        # 主干特征提取：通过3层深度可分离卷积，逐步下采样并增加通道数
+        # 维度变化: (B, 3, H, W) → (B, 16, H/2, W/2) → (B, 32, H/4, W/4) → (B, 64, H/8, W/8)
         feat = self.backbone(x)
 
-        # 全局平均池化聚合 → (B, 64, 1, 1) → flatten → (B, 64)
+        # 全局平均池化 (Global Average Pooling)：计算每个通道在空间维度上的平均值，聚合全局信息
+        # 维度变化: (B, 64, H/8, W/8) → (B, 64, 1, 1)
         feat = self.global_pool(feat)
-        feat = feat.flatten(1)  # 等价于 feat.view(B, -1)
+        # 展平操作：去除大小为1的空间维度
+        # 维度变化: (B, 64, 1, 1) → (B, 64)
+        feat = feat.flatten(1)  
 
         # 分类头：预测退化类型概率分布
-        logits = self.cls_head(feat)                        # (B, num_classes)
-        cls_probs = F.softmax(logits, dim=-1)              # 归一化为概率（推理时用）
+        # 维度变化: (B, 64) → (B, num_classes)
+        logits = self.cls_head(feat)                        
+        # Softmax归一化公式: p_i = exp(x_i) / sum(exp(x_j))，使得输出概率之和为1
+        cls_probs = F.softmax(logits, dim=-1)              
 
         # 程度估计头：预测退化严重程度
-        severity = self.severity_head(feat)                 # (B, 1)，已经过 Sigmoid
+        # Sigmoid函数公式: y = 1 / (1 + exp(-x))，将输出压缩至0到1之间
+        # 维度变化: (B, 64) → (B, 1)
+        severity = self.severity_head(feat)                 
 
-        # 拼接为最终条件向量
-        d = torch.cat([cls_probs, severity], dim=-1)        # (B, num_classes + 1)
+        # 拼接 (Concatenate)：在最后一个维度上合并分类概率和程度估计
+        # 维度变化: (B, num_classes) 与 (B, 1) 拼接 → (B, num_classes + 1)
+        d = torch.cat([cls_probs, severity], dim=-1)        
 
         return d
 

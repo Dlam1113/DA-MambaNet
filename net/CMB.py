@@ -266,14 +266,29 @@ class LocalConvEnhancer(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        参数：x: (B, C, H, W)
-        返回：(B, C, H, W)（与输入 shape 相同）
+        前向传播：局部邻域增强
+        
+        Args:
+            x (torch.Tensor): 输入张量，形状为 (B, C, H, W)
+            
+        Returns:
+            torch.Tensor: 输出张量，形状为 (B, C, H, W)（与输入 shape 相同）
         """
+        # 保存残差连接 (Residual Connection)
         residual = x
+        
+        # 批归一化，稳定后续卷积的输入分布
         x = self.norm(x)
+        
+        # 深度卷积 (Depthwise Conv) 进行 3x3 空间特征聚合，接着过 GELU 非线性激活
+        # GELU公式: x * P(X <= x)，比ReLU更平滑
         x = self.act(self.dw_conv(x))
+        
+        # 逐点卷积 (Pointwise Conv) 进行通道间信息融合与降维
         x = self.pw_conv(x)
-        return x + residual  # 残差连接，保护梯度流动
+        
+        # 将增强后的局部细节通过残差连接加回到原特征，保护梯度流动，缓解网络退化
+        return x + residual  
 
 
 # ==============================================================================
@@ -333,28 +348,34 @@ class HV_CMB(nn.Module):
     def forward(self, x: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
         """
         前向传播
-
-        参数：
-            x: HV 色度流特征图 (B, C, H, W)
-            d: 退化条件向量 (B, cond_dim)，来自 DAM 模块
         
-        返回：
-            经过 Mamba + FiLM 调制后的特征图 (B, C, H, W)
-        
-        与原 HV_LCA 的对比：
-            原：x = x + CAB(LN(x), LN(y))  # 需要另一路特征 y
-            新：x = x + SS2D(LN(x))         # 自注意力式全局建模
+        Args:
+            x (torch.Tensor): HV 色度流特征图，形状为 (B, C, H, W)
+            d (torch.Tensor): 退化条件向量 (B, cond_dim)，来自 DAM 模块
+            
+        Returns:
+            torch.Tensor: 经过 Mamba + FiLM 调制后的特征图，形状 (B, C, H, W)
+            
+        设计解析与数学含义：
+            - SS2D 负责全局长程依赖（捕捉长距离相似颜色模式）
+            - LocalEnhance 负责补偿局部像素连续性
+            - FiLM 负责根据外部退化情况（雨/雾）自适应修改特征响应
         """
-        # 步骤1：Mamba 全局建模（2方向扫描，含残差）
+        # 步骤1：Mamba 全局建模（2方向扫描）+ 残差连接
+        # 数学公式: X_new = X + SS2D(LayerNorm(X))
+        # 维度变化保持不变: (B, C, H, W) -> (B, C, H, W)
         x = x + self.ss2d(self.norm1(x))
 
-        # 步骤2：局部卷积增强（弥补 Mamba 对近邻像素的不足）
+        # 步骤2：局部卷积增强（弥补 Mamba 在2D图像扫描时丢失的邻域细节）
         x = self.local_enhance(x)
 
-        # 步骤3：FiLM 退化感知条件调制（γ⊙x + β）
+        # 步骤3：FiLM 退化感知条件调制
+        # 根据当前图像的退化信息（如是否有雾），自适应地强化或削弱相关特征通道
+        # 公式: X_film = gamma(d) * X + beta(d)
         x = self.film(x, d)
 
-        # 步骤4：强度增强（保留原 IEL 设计）
+        # 步骤4：强度增强（保留原 IEL 设计）+ 残差连接
+        # IEL 进一步提升关键特征表达能力
         x = x + self.iel(self.norm2(x))
 
         return x

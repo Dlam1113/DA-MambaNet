@@ -1,33 +1,43 @@
 """
 GoPro Large 数据集重组采样脚本
 ============================
-将 GOPRO_Large 原始目录结构重组为 AllInOneDataset 要求的 low/high 格式，
-并按需采样指定数量的训练对和验证对。
 
-GOPRO_Large 原始结构：
+模块描述：
+    深度学习数据预处理脚本。此脚本专门用于处理 GoPro 运动去模糊数据集（GOPRO_Large）。
+    它的功能是将 GoPro 原始按照场景（scene）划分的复杂层级目录，展平并重组为 DA-MambaNet 
+    中 AllInOneDataset 要求的统一 low/high 格式。
+    此外，支持从海量数据中随机采样指定数量的图像对，构建训练和验证子集。
+
+退化类型：
+    运动模糊（Blur）-> 标签通常在主模型中映射为 4。
+
+GOPRO_Large 原始结构（按场景划分）：
     GoPro_raw/
     ├── train/
-    │   ├── GOPR0372_07_00/
-    │   │   ├── blur/         ← 模糊输入
+    │   ├── GOPR0372_07_00/   ← 某个具体的视频场景
+    │   │   ├── blur/         ← 模糊输入（low）
     │   │   │   ├── 000001.png
     │   │   │   └── ...
-    │   │   └── sharp/        ← 清晰 GT
+    │   │   └── sharp/        ← 清晰 GT（high）
     │   │       ├── 000001.png
     │   │       └── ...
-    │   └── GOPR0xxx_xx_xx/
+    │   └── GOPR0xxx_xx_xx/   ← 其他场景
     └── test/
-        └── GOPR0xxx_xx_xx/
+        └── GOPR0xxx_xx_xx/   ← 测试集场景
 
-重组后结构（与 AllInOneDataset 兼容）：
+重组后结构约定（完全兼容 AllInOneDataset）：
     GoPro_train/
-    ├── low/    ← 模糊图像（采样 n_train 张）
-    └── high/   ← 清晰图像
+    ├── low/    ← 提取出的所有模糊图像（统一重命名并采样 n_train 张）
+    └── high/   ← 提取出的所有清晰图像
     GoPro_val/
-    ├── low/    ← 模糊图像（采样 n_val 张）
-    └── high/
+    ├── low/    ← 提取出的模糊图像（采样 n_val 张）
+    └── high/   ← 对应的清晰图像
 
-使用方法（服务器端执行）：
-    cd ~/DA_Mamba
+注意：
+    由于 GoPro 数据集不同场景下可能存在同名文件（如 000001.png），
+    本脚本在展平目录时会自动为文件重新编号为 `%06d.png`，避免在同一个 low 目录下发生文件名冲突。
+
+使用方法（服务器终端执行）：
     python data/reorganize_gopro.py \
         --gopro_root ./datasets/GoPro_raw \
         --out_train  ./datasets/GoPro_train \

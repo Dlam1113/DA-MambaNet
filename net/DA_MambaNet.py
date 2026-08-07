@@ -58,21 +58,30 @@ class DA_MambaNet(nn.Module):
     """
     退化感知自适应 Mamba 图像恢复网络（DA-MambaNet）
 
-    网络设计在 DualSpaceCIDNet 基础上做出以下改动：
-    - ❌ 移除 LCA（HV_LCA / I_LCA）模块
-    - ✅ 替换为 HV_CMB / I_CMB（Mamba + FiLM 调制）
-    - ✅ 新增 DAM（退化感知模块）
-    - ✅ 保持所有编解码器结构、HVI 变换、跳跃连接不变
+    模块功能：
+        在 DualSpaceCIDNet 架构基础上，提出了一种双流异构 Mamba 图像恢复架构。
+        它分离了图像的色度（HV）和光照（I）特征，通过退化感知模块（DAM）自适应感知图像退化类型，
+        并利用 Mamba 的选择性扫描机制对长序列依赖进行建模。
+        
+    核心双流架构（HV色度流 + I光照流）：
+        1. HV 流（色度流）：处理色调和饱和度，采用 2方向（水平+垂直）扫描以捕获空间纹理变化。
+        2. I 流（光照流）：处理亮度信息，采用 4方向（水平+垂直+对角）全面扫描以处理全局光照分布不均。
 
-    参数说明：
-        channels:     各层通道数 [ch1, ch2, ch3, ch4]
+    网络设计在 DualSpaceCIDNet 基础上做出以下改动：
+    - ❌ 移除交叉注意力模块 LCA（HV_LCA / I_LCA）
+    - ✅ 替换为条件化的 Mamba 块 CMB（HV_CMB / I_CMB），内部包含 Mamba 建模 + FiLM 退化感知调制
+    - ✅ 新增 DAM（退化感知模块），自动预测退化类型
+    - ✅ 保持所有编解码器结构、HVI 变换、跳跃连接不变，维持了极低参数量
+
+    Args:
+        channels:     list, 各层通道数 [ch1, ch2, ch3, ch4]
                       默认 [36, 36, 72, 144]，与 DualSpaceCIDNet 一致
-        norm:         是否在编解码器中使用 LayerNorm，默认 False
-        num_classes:  DAM 退化类型分类数，默认 3（雨/雾/低光）
-        cond_dim:     退化条件向量维度 = num_classes + 1（+1 为程度估计）
-        d_state:      Mamba SSM 状态空间维度，默认 16
-        d_conv:       Mamba 内部卷积核大小，默认 4
-        expand:       Mamba 通道扩展倍数，默认 2
+        norm:         bool, 是否在编解码器中使用 LayerNorm，默认 False
+        num_classes:  int, DAM 退化类型分类数，默认 3（分别对应：雨、雾、低光）
+        cond_dim:     int, 退化条件向量维度 = num_classes + 1（分类概率 + 1 个严重程度回归值）
+        d_state:      int, Mamba SSM 状态空间维度，控制隐状态容量，默认 16
+        d_conv:       int, Mamba 内部因果卷积核大小，默认 4
+        expand:       int, Mamba 通道内部扩展倍数，默认 2
     """
 
     def __init__(self,
@@ -178,17 +187,23 @@ class DA_MambaNet(nn.Module):
     def forward(self, x: torch.Tensor):
         """
         前向传播
+        
+        实现从退化图像到恢复图像的完整计算图，包括退化类型感知、色彩空间分离、独立特征编码、
+        条件异构 Mamba 交互建模（CMB）以及融合解码。
 
-        参数：
-            x: 退化输入图像 (B, 3, H, W)，范围 [0, 1]
+        Args:
+            x: 退化输入图像张量，形状为 (B, 3, H, W)，取值范围应归一化到 [0, 1]
+               其中 B: 批次大小, 3: RGB通道, H: 高度, W: 宽度
 
-        返回：
-            output_rgb: 增强后的图像 (B, 3, H, W)，范围 [0, 1]
-            d:          退化条件向量 (B, num_classes+1)（训练时可用于计算辅助损失）
+        Returns:
+            output_rgb: 增强/恢复后的图像张量，形状为 (B, 3, H, W)，取值范围 [0, 1]
+            d:          退化条件向量，形状为 (B, num_classes+1)
+                        训练时用于计算分类和回归辅助损失，指导 DAM 模块学习
 
         与 DualSpaceCIDNet.forward 的区别：
             - 额外返回条件向量 d（用于计算 DAM 分类损失）
-            - 将 LCA 调用替换为 CMB 调用（接口从 (x, y) 变为 (x, d)）
+            - 将跨流注意力 LCA 调用替换为条件化 Mamba 块 CMB 调用（接口从 (x, y) 变为 (x, d)）
+            - 两流之间不再显式交换特征，而是通过统一的退化条件向量 d 实现隐式耦合
         """
         dtypes = x.dtype
 

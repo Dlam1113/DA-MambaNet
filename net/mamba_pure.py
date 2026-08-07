@@ -43,21 +43,25 @@ class MambaPure(nn.Module):
     """
     纯 PyTorch Mamba 层（与 mamba_ssm.Mamba 接口完全兼容）
     
+    模块功能：
+        在无需编译 CUDA 扩展的环境下，提供与 mamba-ssm 相同的选择性状态空间模型（Selective SSM）计算逻辑，
+        适用于 Windows 本地调试及推理测试。
+        
     核心操作流程：
-        输入 x: (B, L, D)
+        输入 x: (B, L, D)  # B: 批次大小, L: 序列长度, D: 特征维度
         │
         ├─ 线性投影：D → expand*D*2（分为 z 和 x 两路）
-        ├─ 因果卷积：局部上下文建模（等价于 causal-conv1d）
+        ├─ 因果卷积：局部上下文建模（等价于 causal-conv1d），提取短期依赖
         ├─ 线性投影：生成 Δ, B, C（输入依赖，实现"选择"）
-        ├─ SSM 选择性扫描：序列状态递推（核心）
-        ├─ 门控：y = ssm_output ⊙ SiLU(z)
-        └─ 输出投影：expand*D → D
+        ├─ SSM 选择性扫描：序列状态递推（核心，根据输入动态更新隐藏状态）
+        ├─ 门控：y = ssm_output ⊙ SiLU(z)（特征融合）
+        └─ 输出投影：expand*D → D（恢复至原始特征维度）
         
-    参数（与 mamba_ssm.Mamba 相同）：
-        d_model:  输入/输出维度
-        d_state:  SSM 状态空间维度（N），越大记忆容量越强
-        d_conv:   因果卷积核大小
-        expand:   内部通道扩展倍数（d_inner = expand * d_model）
+    参数说明（与 mamba_ssm.Mamba 相同）：
+        d_model:  int, 输入/输出特征维度 (D)
+        d_state:  int, SSM 状态空间维度（N），越大记忆容量越强，默认 16
+        d_conv:   int, 因果卷积核大小，控制局部感受野，默认 4
+        expand:   int, 内部通道扩展倍数（d_inner = expand * d_model），默认 2
     """
 
     def __init__(self, d_model: int, d_state: int = 16,
@@ -110,10 +114,13 @@ class MambaPure(nn.Module):
         """
         前向传播（选择性扫描 SSM）
         
-        参数：
-            x: (B, L, D)  B=batch, L=序列长度, D=d_model
-        返回：
-            y: (B, L, D)  与输入同 shape
+        执行 Mamba 模型的核心计算：包括输入投影、因果卷积、离散化、选择性扫描、门控与输出投影。
+        
+        Args:
+            x: 输入张量，形状为 (B, L, D)，其中 B=batch_size, L=sequence_length, D=d_model
+        
+        Returns:
+            y: 输出张量，形状与输入相同，为 (B, L, D)
         """
         B, L, D = x.shape
 
@@ -162,21 +169,27 @@ class MambaPure(nn.Module):
         """
         选择性扫描（纯 PyTorch 实现，逐步递推）
         
-        数学：
-            Ā_t = exp(Δ_t ⊙ A)         # 离散化 A（每时间步不同）
-            B̄_t = Δ_t ⊙ B_t             # 离散化 B（简化近似）
-            h_t = Ā_t ⊙ h_{t-1} + B̄_t · u_t
-            y_t = C_t · h_t
+        详细数学公式（零阶保持离散化 ZOH）：
+            连续状态方程:
+                h'(t) = A * h(t) + B(t) * u(t)
+                y(t) = C(t) * h(t)
+            离散化（使用步长 Δ_t）：
+                Ā_t = exp(Δ_t ⊙ A)               # 离散化状态转移矩阵，(B, L, d_inner, d_state)
+                B̄_t = (exp(Δ_t ⊙ A) - I) / A * B_t  # 原始公式
+                B̄_t ≈ Δ_t ⊙ B_t                  # 简化近似离散化输入矩阵
+            逐步递推公式：
+                h_t = Ā_t ⊙ h_{t-1} + B̄_t · u_t    # 隐藏状态更新 (B, d_inner, d_state)
+                y_t = C_t · h_t                    # 输出计算 (B, d_inner)
         
-        参数：
-            u:     (B, L, d_inner)        输入序列
-            delta: (B, L, d_inner)        步长参数
-            A:     (d_inner, d_state)     状态矩阵（对角）
-            B:     (B, L, d_state)        输入矩阵
-            C:     (B, L, d_state)        输出矩阵
+        Args:
+            u:     (B, L, d_inner)        # 输入序列（经过激活的局部特征）
+            delta: (B, L, d_inner)        # 步长参数 Δ，控制各个维度上记忆的连续与重置
+            A:     (d_inner, d_state)     # 固定状态矩阵 A，对角矩阵
+            B:     (B, L, d_state)        # 输入矩阵 B，由输入动态生成
+            C:     (B, L, d_state)        # 输出矩阵 C，由输入动态生成
         
-        返回：
-            y: (B, L, d_inner)
+        Returns:
+            y: (B, L, d_inner)            # 选择性扫描后的输出特征序列
         """
         B_size, L, d_inner = u.shape
         d_state = A.shape[1]

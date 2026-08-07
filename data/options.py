@@ -119,18 +119,32 @@ def option():
                         help='使用合并行人数据集（LoLI低光照+Cityscapes雾天+雨天）')
 
     # ========== DA-MambaNet 专用配置 ==========
+    # DA-MambaNet 是本项目的核心模型，使用退化感知 + Mamba 状态空间模型的混合架构
+    # 设为 True 时会替代 CIDNet / DualSpaceCIDNet 进行训练
     parser.add_argument('--da_mamba', type=bool, default=False,
                         help='是否使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
+    # 退化类型数量，对应 DAM 模块的分类头输出维度
+    # 必须与 allinone_dataset.py 中的标签映射一致：0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
     parser.add_argument('--num_classes', type=int, default=5,
                         help='退化类型分类数（5类: 低光/雾/雨/雪/模糊）')
+    # Mamba SSM 的隐状态维度，控制模型对长距离依赖的记忆容量
+    # 推荐值：16（轻量）或 32（更强表达力但显存占用增大）
     parser.add_argument('--d_state', type=int, default=16,
                         help='Mamba SSM 状态空间维度（越大记忆容量越强，计算量越大）')
+    # DAM 分类辅助损失：利用退化类型标签监督 DAM 模块的退化分类
+    # 设为 0 时 DAM 仅通过主恢复损失间接学习退化表征（无监督模式）
+    # 设为 0.1 时加入交叉熵辅助损失，加速 DAM 收敛（需要数据集提供标签）
     parser.add_argument('--dam_cls_weight', type=float, default=0.0,
                         help='DAM 分类辅助损失权重（0表示禁用，推荐有标签时设为0.1）')
 
     # ========== AllInOne 混合数据集路径（DA-MambaNet 专用）==========
+    # AllInOne 模式：将 5 种退化类型的数据集混合为一个统一的训练集
+    # 每个样本会携带退化类型标签（0-4），供 DAM 分类辅助损失使用
+    # 与 --da_mamba True 配合使用，实现"一个模型处理所有退化"的 All-in-One 训练
     parser.add_argument('--allinone', type=bool, default=False,
-                        help='是否使用 AllInOne 混合数据集（低光+雾+雨三合一）')
+                        help='是否使用 AllInOne 混合数据集（低光+雾+雨+雪+模糊五合一）')
+    # 平衡模式：对各退化类别进行过采样/欠采样，使每种类型的样本数相同
+    # 适用于各退化数据集样本数差异较大的情况（如 LOLv1=485 vs GoPro=2103）
     parser.add_argument('--allinone_balance', type=bool, default=False,
                         help='是否按退化类别平衡 AllInOne 数据集')
     # 低光照训练集（支持多个路径，用逗号分隔）
