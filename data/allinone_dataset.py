@@ -222,7 +222,7 @@ class AllInOneEvalDataset(data.Dataset):
         transform:  图像变换（通常只有 ToTensor）
     """
 
-    def __init__(self, data_dirs, labels=None, transform=None):
+    def __init__(self, data_dirs, labels=None, transform=None, max_samples_per_dir=None):
         super(AllInOneEvalDataset, self).__init__()
         self.transform   = transform
         self.low_files   = []
@@ -240,12 +240,17 @@ class AllInOneEvalDataset(data.Dataset):
             lows  = sorted([os.path.join(low_dir,  f) for f in listdir(low_dir)  if is_image_file(f)])
             highs = sorted([os.path.join(high_dir, f) for f in listdir(high_dir) if is_image_file(f)])
 
+            # 如果设置了单个验证集最大数量（如 30），进行截断（LOLv1只有15张不受影响）
+            if max_samples_per_dir and max_samples_per_dir > 0:
+                lows  = lows[:max_samples_per_dir]
+                highs = highs[:max_samples_per_dir]
+
             label = labels[i] if labels else -1   # -1 表示未知
             self.low_files.extend(lows)
             self.high_files.extend(highs)
             self.labels_list.extend([label] * len(lows))
 
-        print(f"  [AllInOneEvalDataset] 验证集共 {len(self.low_files)} 张")
+        print(f"  [AllInOneEvalDataset] 验证集共 {len(self.low_files)} 张 (每类上限: {max_samples_per_dir if max_samples_per_dir else '无限制'})")
 
     def __getitem__(self, index):
         """
@@ -326,20 +331,22 @@ def get_allinone_training_set(lol_dirs, fog_dirs, rain_dirs,
     )
 
 
-def get_allinone_eval_set(val_dirs, labels):
+def get_allinone_eval_set(val_dirs, labels, max_samples_per_dir=None):
     """
     构建 DA-MambaNet 多退化验证集。
 
     参数：
-        val_dirs:  验证数据目录列表
-        labels:    对应的退化类型标签列表 [0, 0, 1, 2, ...]
+        val_dirs:             验证数据目录列表
+        labels:               对应的退化类型标签列表 [0, 1, 2, 3, 4]
+        max_samples_per_dir: 每个验证目录截取的最大样本数（例如30）
     返回：
         AllInOneEvalDataset
     """
     from torchvision import transforms as T
     transform = T.ToTensor()
     return AllInOneEvalDataset(
-        data_dirs = val_dirs,
-        labels    = labels,
-        transform = transform,
+        data_dirs           = val_dirs,
+        labels              = labels,
+        transform           = transform,
+        max_samples_per_dir = max_samples_per_dir,
     )

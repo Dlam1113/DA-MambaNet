@@ -183,5 +183,7 @@ def option():
     parser.add_argument('--data_blur_val', type=str,
                         default='./datasets/GoPro_val',
                         help='运动模糊验证集路径')
+    parser.add_argument('--max_val_samples', type=int, default=30,
+                        help='验证集每种退化类型的最大评估样本数（默认30，LOLv1全用15张，其余4类截断前30张；0或-1表示不限制）')
 
     return parser

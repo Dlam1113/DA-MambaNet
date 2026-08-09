@@ -275,11 +275,11 @@ def load_datasets():
             shuffle    = opt.shuffle,
         )
 
-        # 验证集：5种退化分别验证
+        # 验证集：5种退化分别验证（通过 opt.max_val_samples 控制截断数量，默认每类最多30张）
         val_dirs   = [opt.data_lol_val, opt.data_fog_val, opt.data_rain_val,
                       opt.data_snow_val, opt.data_blur_val]
         val_labels = [0, 1, 2, 3, 4]   # 0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
-        test_set = get_allinone_eval_set(val_dirs, val_labels)
+        test_set = get_allinone_eval_set(val_dirs, val_labels, max_samples_per_dir=opt.max_val_samples)
         testing_data_loader = DataLoader(
             dataset    = test_set,
             num_workers= opt.threads,
