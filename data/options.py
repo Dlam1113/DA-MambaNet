@@ -131,6 +131,8 @@ def option():
     # 推荐值：16（轻量）或 32（更强表达力但显存占用增大）
     parser.add_argument('--d_state', type=int, default=16,
                         help='Mamba SSM 状态空间维度（越大记忆容量越强，计算量越大）')
+    parser.add_argument('--expand', type=float, default=2.0,
+                        help='Mamba 内部通道扩展倍数 E（默认 2.0，可选 1.5, 2.0, 3.0）')
     # DAM 分类辅助损失：利用退化类型标签监督 DAM 模块的退化分类
     # 设为 0 时 DAM 仅通过主恢复损失间接学习退化表征（无监督模式）
     # 设为 0.1 时加入交叉熵辅助损失，加速 DAM 收敛（需要数据集提供标签）

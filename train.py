@@ -307,7 +307,7 @@ def build_model():
             print('  - 通道模式: 36 (标准模式 [36,36,72,144], ~4.45M)')
 
         print(f'  - num_classes={opt.num_classes}（退化类型数：{opt.num_classes}）')
-        print(f'  - d_state={opt.d_state}（Mamba SSM 状态维度）')
+        print(f'  - d_state={opt.d_state}, expand={opt.expand}（Mamba SSM 状态维度与通道扩展）')
         print(f'  - 消融配置: DAM={opt.use_dam}, FiLM={opt.use_film}, scan_mode={opt.scan_mode}')
         if opt.use_rgb_refiner:
             print(f'  - RGB Refiner: 启用（mid_ch={opt.refiner_mid_ch}）')
@@ -317,7 +317,7 @@ def build_model():
             num_classes    = opt.num_classes,
             d_state        = opt.d_state,
             d_conv         = 4,
-            expand         = 2,
+            expand         = int(opt.expand),
             use_rgb_refiner= opt.use_rgb_refiner,
             refiner_mid_ch = opt.refiner_mid_ch,
             use_dam        = opt.use_dam,
