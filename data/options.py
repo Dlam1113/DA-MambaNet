@@ -9,9 +9,9 @@ def option():
     parser.add_argument('--batchSize', type=int, default=8, help='training batch size')
     parser.add_argument('--cropSize', type=int, default=256, help='image crop size (patch size)')
     parser.add_argument('--eval_size', type=int, default=512, help='image resize size for evaluation (0 for original size)')
-    parser.add_argument('--nEpochs', type=int, default=500, help='number of epochs to train for end')
+    parser.add_argument('--nEpochs', type=int, default=1200, help='number of epochs to train for end')
     parser.add_argument('--start_epoch', type=int, default=0, help='number of epochs to start, >0 is retrained a pre-trained pth')
-    parser.add_argument('--snapshots', type=int, default=1, help='Snapshots for save checkpoints pth')
+    parser.add_argument('--snapshots', type=int, default=30, help='Snapshots for save checkpoints pth')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning Rate')
     parser.add_argument('--gpu_mode', type=bool, default=True)
     parser.add_argument('--shuffle', type=bool, default=True)
@@ -136,7 +136,7 @@ def option():
     # DAM 分类辅助损失：利用退化类型标签监督 DAM 模块的退化分类
     # 设为 0 时 DAM 仅通过主恢复损失间接学习退化表征（无监督模式）
     # 设为 0.1 时加入交叉熵辅助损失，加速 DAM 收敛（需要数据集提供标签）
-    parser.add_argument('--dam_cls_weight', type=float, default=0.0,
+    parser.add_argument('--dam_cls_weight', type=float, default=0.1,
                         help='DAM 分类辅助损失权重（0表示禁用，推荐有标签时设为0.1）')
 
     # ========== DA-MambaNet 一键消融实验配置 ==========
