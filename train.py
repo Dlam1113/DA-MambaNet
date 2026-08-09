@@ -476,6 +476,9 @@ if __name__ == '__main__':
             if opt.combined_pedestrian:
                 output_folder = 'combined_pedestrian/'
                 norm_size = False
+            if opt.allinone:
+                output_folder = 'allinone/'
+                norm_size = False
             
             im_dir = opt.val_folder + output_folder  # 只传目录路径
             
