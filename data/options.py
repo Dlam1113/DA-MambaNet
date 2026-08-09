@@ -92,9 +92,9 @@ def option():
                         help='是否使用DualSpaceCIDNet（v3: CIDNet + RGB后处理）')
     
     # ========== RGB后处理配置 ==========
-    parser.add_argument('--use_rgb_refiner', type=bool, default=False,
-                        help='是否启用RGB后处理微调（消融实验可关闭）')
-    parser.add_argument('--refiner_mid_ch', type=int, default=64,
+    parser.add_argument('--use_rgb_refiner', type=bool, default=True,
+                        help='是否启用RGB后处理微调（默认永久保留开启）')
+    parser.add_argument('--refiner_mid_ch', type=int, default=32,
                         help='RGB Refiner中间层通道数')
     
     # ========== 神经曲线层消融实验 ==========

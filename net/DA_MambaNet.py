@@ -97,7 +97,7 @@ class DA_MambaNet(nn.Module):
                  d_state: int = 16,
                  d_conv: int = 4,
                  expand: int = 2,
-                 use_rgb_refiner: bool = False,
+                 use_rgb_refiner: bool = True,
                  refiner_mid_ch: int = 32,
                  use_dam: bool = True,
                  use_film: bool = True,
