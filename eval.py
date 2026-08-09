@@ -36,8 +36,25 @@ eval_parser.add_argument('--unpaired_weights', type=str, default='./weights/LOLv
 ep, _ = eval_parser.parse_known_args()
 
 
-def eval(model, testing_data_loader, model_path, output_folder,norm_size=True,LOL=False,v2=False,unpaired=False,#unpaired是指未配对的数据集
-        alpha=1.0,gamma=1.0):
+def eval(model, testing_data_loader, model_path, output_folder, norm_size=True, LOL=False, v2=False, unpaired=False,
+         alpha=1.0, gamma=1.0):
+    """
+    模型评估与推理图片保存函数 (Evaluation & Inference Save Function)
+    
+    对测试/验证数据集中的图片进行模型前向推理，并将模型生成的图像结果保存到指定文件夹中。
+    
+    参数说明 (Parameters):
+        model (nn.Module): 待评估的深度学习模型实例（如 CIDNet、DualSpaceCIDNet、DA_MambaNet）。
+        testing_data_loader (DataLoader): 验证集的数据加载器，按 Batch 视角读取测试图像。
+        model_path (str): 模型保存的权重文件路径（.pth 文件）。
+        output_folder (str): 评估生成的预测图片保存的目标文件夹路径。
+        norm_size (bool): 图像尺寸是否已经归一化/裁剪好。若为 False，则需要按原始 h, w 裁切恢复尺寸。
+        LOL (bool): 是否为 LOLv1 数据集特定推断开关。
+        v2 (bool): 是否为 LOLv2 数据集特定推断开关。
+        unpaired (bool): 是否为未配对数据集推理模式。
+        alpha (float): 调节系数（用于模型内部某些增强通道）。
+        gamma (float): 增强曲线 Gamma 值的指数次方（默认为 1.0 表示不调整）。
+    """
     torch.set_grad_enabled(False)
     model.load_state_dict(torch.load(model_path, map_location=lambda storage, loc: storage))
     print('Pre-trained model is loaded.')
@@ -51,6 +68,7 @@ def eval(model, testing_data_loader, model_path, output_folder,norm_size=True,LO
     elif unpaired:
         model.trans.gated2 = True
         model.trans.alpha = alpha
+        
     for batch in tqdm(testing_data_loader):
         with torch.no_grad():
             if norm_size:
@@ -61,22 +79,29 @@ def eval(model, testing_data_loader, model_path, output_folder,norm_size=True,LO
             input = input.cuda()
             result = model(input**gamma)
             
-            # 兼容DualSpaceCIDNet返回dict的情况
+            # =====================================================================
+            # 解包模型输出 (兼容多种网络架构的返回值):
+            # 1. dict 结构 (例如 DualSpaceCIDNet 返回 {'output': Tensor, ...}): 提取 ['output']
+            # 2. tuple/list 结构 (例如 DA_MambaNet 返回 (output_rgb, deg_cond)): 提取第 0 项 output_rgb
+            # 3. 单张量 Tensor 结构 (例如 标准 CIDNet 返回 output_rgb): 直接使用
+            # =====================================================================
             if isinstance(result, dict):
                 output = result['output']
+            elif isinstance(result, (tuple, list)):
+                output = result[0]
             else:
                 output = result
             
         if not os.path.exists(output_folder):          
             os.mkdir(output_folder)  
             
-        output = torch.clamp(output, 0, 1).cuda()  # 将output中的值限制在（0，1）之间
+        output = torch.clamp(output, 0, 1).cuda()  # 将output中的像素数值截断在 [0, 1] 合法RGB范围之间
         if not norm_size:
-            output = output[:, :, :h, :w]#恢复到原来图片尺寸
+            output = output[:, :, :h, :w] # 恢复到原来图片尺寸
         
         output_img = transforms.ToPILImage()(output.squeeze(0))
-        output_img.save(output_folder + name[0])#因为name是元组类型所以必须索引
-        torch.cuda.empty_cache()  #清理GPU缓存
+        output_img.save(output_folder + name[0]) # 因为 name 是元组类型所以必须取索引 [0]
+        torch.cuda.empty_cache()  # 清理 GPU 显存缓存
     print('===> End evaluation')
     if LOL:
         model.trans.gated = False
