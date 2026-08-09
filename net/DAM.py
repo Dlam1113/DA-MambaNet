@@ -110,7 +110,7 @@ class DegradationAwareModule(nn.Module):
         - 训练时可选加入交叉熵损失做监督，也可纯靠下游任务损失隐式引导
     """
 
-    def __init__(self, num_classes: int = 3, mid_ch: int = 32):
+    def __init__(self, num_classes: int = 5, mid_ch: int = 32):
         super().__init__()
 
         self.num_classes = num_classes

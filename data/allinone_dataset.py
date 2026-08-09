@@ -137,7 +137,7 @@ class AllInOneDataset(data.Dataset):
 
                 print(f"  ✅ {label_name}({label}): {data_dir} → {len(low_files)} 对")
 
-        # 按类别平衡（欠采样多数类到最少类的数量）
+        # 按类别平衡（过采样少数类到最多类的数量）
         if balance:
             counts = [len(v) for v in class_samples.values() if v]
             if counts:
