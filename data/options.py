@@ -137,6 +137,16 @@ def option():
     parser.add_argument('--dam_cls_weight', type=float, default=0.0,
                         help='DAM 分类辅助损失权重（0表示禁用，推荐有标签时设为0.1）')
 
+    # ========== DA-MambaNet 一键消融实验配置 ==========
+    parser.add_argument('--use_dam', type=bool, default=True,
+                        help='【消融】是否启用 DAM 退化感知模块（设为 False 时使用零向量代替条件向量）')
+    parser.add_argument('--use_film', type=bool, default=True,
+                        help='【消融】是否启用 FiLM 特征条件调制（设为 False 时旁路特征调制）')
+    parser.add_argument('--scan_mode', type=str, default='hetero',
+                        help='【消融】Mamba 扫描模式：hetero(HV流2向/I流4向异构，默认), all_2way(全2向), all_4way(全4向)')
+    parser.add_argument('--channels_mode', type=str, default='36',
+                        help='【消融/轻量化】通道数模式：36(即[36,36,72,144], 4.45M), 24(即[24,24,48,96], 2.09M极轻量)')
+
     # ========== AllInOne 混合数据集路径（DA-MambaNet 专用）==========
     # AllInOne 模式：将 5 种退化类型的数据集混合为一个统一的训练集
     # 每个样本会携带退化类型标签（0-4），供 DAM 分类辅助损失使用

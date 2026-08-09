@@ -325,16 +325,18 @@ class HV_CMB(nn.Module):
     """
 
     def __init__(self, dim: int, cond_dim: int = 4,
-                 d_state: int = 16, d_conv: int = 4, expand: int = 2, bias: bool = False):
+                 d_state: int = 16, d_conv: int = 4, expand: int = 2, bias: bool = False,
+                 use_film: bool = True, num_scan: int = 2):
         super().__init__()
+        self.use_film = use_film
 
         # 层归一化（channels_first 格式，与原 LCA 保持一致）
         self.norm1 = LayerNorm(dim)
         self.norm2 = LayerNorm(dim)
 
-        # 2方向 SS2D（HV 色度流使用水平+垂直）
+        # SS2D（根据 num_scan 配置 2方向 或 4方向）
         self.ss2d = SS2D(dim=dim, d_state=d_state, d_conv=d_conv,
-                         expand=expand, num_scan=2)
+                         expand=expand, num_scan=num_scan)
 
         # 局部卷积增强（解决 Mamba 的局部像素遗忘）
         self.local_enhance = LocalConvEnhancer(dim=dim, expand=2)
@@ -346,36 +348,17 @@ class HV_CMB(nn.Module):
         self.iel = IEL(dim=dim)
 
     def forward(self, x: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
-        """
-        前向传播
-        
-        Args:
-            x (torch.Tensor): HV 色度流特征图，形状为 (B, C, H, W)
-            d (torch.Tensor): 退化条件向量 (B, cond_dim)，来自 DAM 模块
-            
-        Returns:
-            torch.Tensor: 经过 Mamba + FiLM 调制后的特征图，形状 (B, C, H, W)
-            
-        设计解析与数学含义：
-            - SS2D 负责全局长程依赖（捕捉长距离相似颜色模式）
-            - LocalEnhance 负责补偿局部像素连续性
-            - FiLM 负责根据外部退化情况（雨/雾）自适应修改特征响应
-        """
-        # 步骤1：Mamba 全局建模（2方向扫描）+ 残差连接
-        # 数学公式: X_new = X + SS2D(LayerNorm(X))
-        # 维度变化保持不变: (B, C, H, W) -> (B, C, H, W)
+        # 步骤1：Mamba 全局建模 + 残差连接
         x = x + self.ss2d(self.norm1(x))
 
-        # 步骤2：局部卷积增强（弥补 Mamba 在2D图像扫描时丢失的邻域细节）
+        # 步骤2：局部卷积增强
         x = self.local_enhance(x)
 
-        # 步骤3：FiLM 退化感知条件调制
-        # 根据当前图像的退化信息（如是否有雾），自适应地强化或削弱相关特征通道
-        # 公式: X_film = gamma(d) * X + beta(d)
-        x = self.film(x, d)
+        # 步骤3：FiLM 退化感知条件调制（通过 use_film 开关控制）
+        if self.use_film:
+            x = self.film(x, d)
 
-        # 步骤4：强度增强（保留原 IEL 设计）+ 残差连接
-        # IEL 进一步提升关键特征表达能力
+        # 步骤4：强度增强 + 残差连接
         x = x + self.iel(self.norm2(x))
 
         return x
@@ -384,60 +367,37 @@ class HV_CMB(nn.Module):
 class I_CMB(nn.Module):
     """
     I 光照流条件化 Mamba 块（Conditional Mamba Block for I stream）
-
-    替换 I_LCA，使用 4 方向全扫描，适合光照信息的全局连续特性。
-    与 HV_CMB 的唯一区别：SS2D 使用 4 方向（而非 2 方向）扫描。
-
-    前向流程：
-        1. x = x + SS2D(LN(x), num_scan=4)    # Mamba 全局建模（4方向扫描）
-        2. x = LocalConvEnhancer(x)             # 局部增强
-        3. x = FiLMLayer(x, d)                  # FiLM 退化感知调制
-        4. x = x + IEL(LN(x))                   # 强度增强（含残差，与原 I_LCA 一致）
-
-    参数：
-        dim:       特征通道数
-        cond_dim:  退化条件向量维度（默认4）
-        d_state:   Mamba SSM 状态维度
-        d_conv:    Mamba 内部卷积核大小
-        expand:    Mamba 通道扩展倍数
-        bias:      是否使用偏置
     """
 
     def __init__(self, dim: int, cond_dim: int = 4,
-                 d_state: int = 16, d_conv: int = 4, expand: int = 2, bias: bool = False):
+                 d_state: int = 16, d_conv: int = 4, expand: int = 2, bias: bool = False,
+                 use_film: bool = True, num_scan: int = 4):
         super().__init__()
+        self.use_film = use_film
 
         self.norm1 = LayerNorm(dim)
         self.norm2 = LayerNorm(dim)
 
-        # 4方向 SS2D（I 光照流使用完整四方向扫描）
+        # SS2D（根据 num_scan 配置 2方向 或 4方向）
         self.ss2d = SS2D(dim=dim, d_state=d_state, d_conv=d_conv,
-                         expand=expand, num_scan=4)
+                         expand=expand, num_scan=num_scan)
 
         self.local_enhance = LocalConvEnhancer(dim=dim, expand=2)
         self.film = FiLMLayer(channels=dim, cond_dim=cond_dim)
         self.iel = IEL(dim=dim)
 
     def forward(self, x: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
-        """
-        前向传播
-
-        参数：
-            x: I 光照流特征图 (B, C, H, W)
-            d: 退化条件向量 (B, cond_dim)
-        返回：
-            (B, C, H, W)
-        """
-        # 步骤1：4方向 Mamba 全局建模（光照流需要更强的全局感受野）
+        # 步骤1：Mamba 全局建模
         x = x + self.ss2d(self.norm1(x))
 
         # 步骤2：局部卷积增强
         x = self.local_enhance(x)
 
-        # 步骤3：FiLM 退化感知条件调制
-        x = self.film(x, d)
+        # 步骤3：FiLM 退化感知条件调制（可通过 use_film 关掉做消融）
+        if self.use_film:
+            x = self.film(x, d)
 
-        # 步骤4：强度增强（I 通道保留残差连接，与原 I_LCA 一致）
+        # 步骤4：强度增强
         x = x + self.iel(self.norm2(x))
 
         return x

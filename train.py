@@ -299,18 +299,30 @@ def build_model():
     # 根据配置选择模型（优先级：da_mamba > dual_space > 原始 CIDNet）
     if opt.da_mamba:
         print('===> 使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
+        if str(opt.channels_mode) == '24':
+            base_channels = [24, 24, 48, 96]
+            print('  - 通道模式: 24 (极轻量化 [24,24,48,96], ~2.09M)')
+        else:
+            base_channels = [36, 36, 72, 144]
+            print('  - 通道模式: 36 (标准模式 [36,36,72,144], ~4.45M)')
+
         print(f'  - num_classes={opt.num_classes}（退化类型数：{opt.num_classes}）')
         print(f'  - d_state={opt.d_state}（Mamba SSM 状态维度）')
+        print(f'  - 消融配置: DAM={opt.use_dam}, FiLM={opt.use_film}, scan_mode={opt.scan_mode}')
         if opt.use_rgb_refiner:
             print(f'  - RGB Refiner: 启用（mid_ch={opt.refiner_mid_ch}）')
+
         model = DA_MambaNet(
-            channels       = [36, 36, 72, 144],
+            channels       = base_channels,
             num_classes    = opt.num_classes,
             d_state        = opt.d_state,
             d_conv         = 4,
             expand         = 2,
             use_rgb_refiner= opt.use_rgb_refiner,
             refiner_mid_ch = opt.refiner_mid_ch,
+            use_dam        = opt.use_dam,
+            use_film       = opt.use_film,
+            scan_mode      = opt.scan_mode,
         ).cuda()
     elif opt.dual_space:
         print('===> 使用 DualSpaceCIDNet (v3: CIDNet + RGB后处理)')

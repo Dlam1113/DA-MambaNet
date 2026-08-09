@@ -85,6 +85,9 @@ class DA_MambaNet(nn.Module):
         expand:           int, Mamba 通道内部扩展倍数，默认 2
         use_rgb_refiner:  bool, 是否启用 RGB 空间残差微调（消融实验用），默认 False
         refiner_mid_ch:   int, RGBRefiner 中间层通道数，默认 32
+        use_dam:          bool, 是否启用 DAM 模块（消融实验用），默认 True
+        use_film:         bool, 是否启用 FiLM 调制（消融实验用），默认 True
+        scan_mode:        str, 扫描模式，'hetero' 或 'all_2way' 或 'all_4way'
     """
 
     def __init__(self,
@@ -95,20 +98,31 @@ class DA_MambaNet(nn.Module):
                  d_conv: int = 4,
                  expand: int = 2,
                  use_rgb_refiner: bool = False,
-                 refiner_mid_ch: int = 32):
+                 refiner_mid_ch: int = 32,
+                 use_dam: bool = True,
+                 use_film: bool = True,
+                 scan_mode: str = 'hetero'):
         super().__init__()
 
         if channels is None:
             channels = [36, 36, 72, 144]
 
         [ch1, ch2, ch3, ch4] = channels
-        # 退化条件向量维度 = 分类数 + 1（程度估计）
         cond_dim = num_classes + 1
+        self.cond_dim = cond_dim
+        self.use_dam = use_dam
+        self.use_film = use_film
+
+        # 设置多方向扫描模式（消融实验）
+        if scan_mode == 'all_2way':
+            hv_scan, i_scan = 2, 2
+        elif scan_mode == 'all_4way':
+            hv_scan, i_scan = 4, 4
+        else:  # 'hetero' 异构模式（HV流2向，I流4向）
+            hv_scan, i_scan = 2, 4
 
         # =====================================================================
         #   模块0（可选）：RGB 空间残差微调模块
-        #   从 DualSpaceCIDNet 继承，在 HVI→RGB 转换后做轻量残差校正
-        #   用于消融实验：验证 RGB 空间后处理对多退化恢复的增益
         # =====================================================================
         self.use_rgb_refiner = use_rgb_refiner
         if use_rgb_refiner:
