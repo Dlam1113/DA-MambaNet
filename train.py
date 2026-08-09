@@ -301,12 +301,16 @@ def build_model():
         print('===> 使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
         print(f'  - num_classes={opt.num_classes}（退化类型数：{opt.num_classes}）')
         print(f'  - d_state={opt.d_state}（Mamba SSM 状态维度）')
+        if opt.use_rgb_refiner:
+            print(f'  - RGB Refiner: 启用（mid_ch={opt.refiner_mid_ch}）')
         model = DA_MambaNet(
-            channels   = [36, 36, 72, 144],
-            num_classes= opt.num_classes,
-            d_state    = opt.d_state,
-            d_conv     = 4,
-            expand     = 2,
+            channels       = [36, 36, 72, 144],
+            num_classes    = opt.num_classes,
+            d_state        = opt.d_state,
+            d_conv         = 4,
+            expand         = 2,
+            use_rgb_refiner= opt.use_rgb_refiner,
+            refiner_mid_ch = opt.refiner_mid_ch,
         ).cuda()
     elif opt.dual_space:
         print('===> 使用 DualSpaceCIDNet (v3: CIDNet + RGB后处理)')

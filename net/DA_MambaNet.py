@@ -52,6 +52,7 @@ from net.HVI_transform import RGB_HVI
 from net.transformer_utils import NormDownsample, NormUpsample
 from net.CMB import HV_CMB, I_CMB
 from net.DAM import DegradationAwareModule
+from net.DualSpaceCIDNet import RGBRefiner  # RGB空间残差微调模块（可选）
 
 
 class DA_MambaNet(nn.Module):
@@ -74,23 +75,27 @@ class DA_MambaNet(nn.Module):
     - ✅ 保持所有编解码器结构、HVI 变换、跳跃连接不变，维持了极低参数量
 
     Args:
-        channels:     list, 各层通道数 [ch1, ch2, ch3, ch4]
-                      默认 [36, 36, 72, 144]，与 DualSpaceCIDNet 一致
-        norm:         bool, 是否在编解码器中使用 LayerNorm，默认 False
-        num_classes:  int, DAM 退化类型分类数，默认 3（分别对应：雨、雾、低光）
-        cond_dim:     int, 退化条件向量维度 = num_classes + 1（分类概率 + 1 个严重程度回归值）
-        d_state:      int, Mamba SSM 状态空间维度，控制隐状态容量，默认 16
-        d_conv:       int, Mamba 内部因果卷积核大小，默认 4
-        expand:       int, Mamba 通道内部扩展倍数，默认 2
+        channels:         list, 各层通道数 [ch1, ch2, ch3, ch4]
+                          默认 [36, 36, 72, 144]，与 DualSpaceCIDNet 一致
+        norm:             bool, 是否在编解码器中使用 LayerNorm，默认 False
+        num_classes:      int, DAM 退化类型分类数，默认 5（低光/雾/雨/雪/模糊）
+        cond_dim:         int, 退化条件向量维度 = num_classes + 1（分类概率 + 1 个严重程度回归值）
+        d_state:          int, Mamba SSM 状态空间维度，控制隐状态容量，默认 16
+        d_conv:           int, Mamba 内部因果卷积核大小，默认 4
+        expand:           int, Mamba 通道内部扩展倍数，默认 2
+        use_rgb_refiner:  bool, 是否启用 RGB 空间残差微调（消融实验用），默认 False
+        refiner_mid_ch:   int, RGBRefiner 中间层通道数，默认 32
     """
 
     def __init__(self,
                  channels: list = None,
                  norm: bool = False,
-                 num_classes: int = 3,
+                 num_classes: int = 5,
                  d_state: int = 16,
                  d_conv: int = 4,
-                 expand: int = 2):
+                 expand: int = 2,
+                 use_rgb_refiner: bool = False,
+                 refiner_mid_ch: int = 32):
         super().__init__()
 
         if channels is None:
@@ -99,6 +104,15 @@ class DA_MambaNet(nn.Module):
         [ch1, ch2, ch3, ch4] = channels
         # 退化条件向量维度 = 分类数 + 1（程度估计）
         cond_dim = num_classes + 1
+
+        # =====================================================================
+        #   模块0（可选）：RGB 空间残差微调模块
+        #   从 DualSpaceCIDNet 继承，在 HVI→RGB 转换后做轻量残差校正
+        #   用于消融实验：验证 RGB 空间后处理对多退化恢复的增益
+        # =====================================================================
+        self.use_rgb_refiner = use_rgb_refiner
+        if use_rgb_refiner:
+            self.rgb_refiner = RGBRefiner(in_channels=3, mid_channels=refiner_mid_ch)
 
         # =====================================================================
         #   模块1：退化感知模块（DAM）
@@ -316,6 +330,14 @@ class DA_MambaNet(nn.Module):
         # 全局残差连接：在 HVI 空间直接相加（继承 DualSpaceCIDNet 设计）
         output_hvi = torch.cat([hv_0, i_dec0], dim=1) + hvi   # (B, 3, H, W)
         output_rgb = self.trans.PHVIT(output_hvi)              # (B, 3, H, W)
+
+        # ==============================================================
+        # 步骤4.5（可选）：RGB 空间残差微调
+        # 在 HVI→RGB 转换后，用轻量 3 层 CNN 学习残差校正
+        # 补偿 HVI→RGB 转换中可能遗漏的高频细节
+        # ==============================================================
+        if self.use_rgb_refiner:
+            output_rgb = self.rgb_refiner(output_rgb)          # (B, 3, H, W)
 
         # 截断到 [0, 1]，防止极端值导致损失计算异常
         output_rgb = torch.clamp(output_rgb, 0, 1)
