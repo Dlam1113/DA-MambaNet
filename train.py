@@ -496,7 +496,38 @@ if __name__ == '__main__':
                     norm_size=norm_size, LOL=opt.lol_v1, v2=opt.lolv2_real, alpha=0.8)
             
             # ===== 计算评估指标 =====
-            if opt.combined_pedestrian:
+            if opt.allinone:
+                # AllInOne 多退化混合验证集：自动汇总 5 个退化验证集的 GT 到临时目录计算总指标
+                import shutil
+                val_gt_dirs = [
+                    opt.data_lol_val,
+                    opt.data_fog_val,
+                    opt.data_rain_val,
+                    opt.data_snow_val,
+                    opt.data_blur_val
+                ]
+                combined_gt_dir = os.path.join(im_dir, '_temp_combined_gt')
+                os.makedirs(combined_gt_dir, exist_ok=True)
+                for v_dir in val_gt_dirs:
+                    if not os.path.exists(v_dir):
+                        continue
+                    high_dir = os.path.join(v_dir, 'high')
+                    prefix = os.path.basename(v_dir)
+                    if os.path.isdir(high_dir):
+                        files = sorted([f for f in os.listdir(high_dir) if is_image_file(f)])
+                        if opt.max_val_samples and opt.max_val_samples > 0:
+                            files = files[:opt.max_val_samples]
+                        for f in files:
+                            src = os.path.join(high_dir, f)
+                            dst_name = f"{prefix}_{f}"
+                            shutil.copy2(src, os.path.join(combined_gt_dir, dst_name))
+                
+                print("\n--- AllInOne 5类多退化混合验证指标 ---")
+                avg_psnr, avg_ssim, avg_lpips = metrics(
+                    im_dir, combined_gt_dir + '/', use_GT_mean=False
+                )
+                shutil.rmtree(combined_gt_dir, ignore_errors=True)
+            elif opt.combined_pedestrian:
                 # 合并数据集验证：直接在整体合并的 GT 上计算总指标（不再拆分子集）
                 import shutil
                 

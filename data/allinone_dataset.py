@@ -228,6 +228,7 @@ class AllInOneEvalDataset(data.Dataset):
         self.low_files   = []
         self.high_files  = []
         self.labels_list = []
+        self.prefix_list = []
 
         for i, data_dir in enumerate(data_dirs):
             low_dir  = os.path.join(data_dir, 'low')
@@ -246,9 +247,11 @@ class AllInOneEvalDataset(data.Dataset):
                 highs = highs[:max_samples_per_dir]
 
             label = labels[i] if labels else -1   # -1 表示未知
+            prefix = os.path.basename(data_dir)
             self.low_files.extend(lows)
             self.high_files.extend(highs)
             self.labels_list.extend([label] * len(lows))
+            self.prefix_list.extend([prefix] * len(lows))
 
         print(f"  [AllInOneEvalDataset] 验证集共 {len(self.low_files)} 张 (每类上限: {max_samples_per_dir if max_samples_per_dir else '无限制'})")
 
@@ -261,14 +264,16 @@ class AllInOneEvalDataset(data.Dataset):
 
         返回：
             input_img:  退化输入 Tensor，维度为 (3, H, W)
-            filename:   文件名
+            filename:   文件名（带数据集前缀，防止同名文件覆盖）
             h, w:       原始图像的高度和宽度（用于评估后去掉 padding，计算真实的指标）
             label:      退化类型（用于分类统计指标）
         """
         import torch.nn.functional as F
 
         input_img = load_img(self.low_files[index])
-        _, fname = os.path.split(self.low_files[index])
+        _, raw_fname = os.path.split(self.low_files[index])
+        prefix = self.prefix_list[index]
+        fname = f"{prefix}_{raw_fname}"
         label = self.labels_list[index]
 
         if self.transform:
