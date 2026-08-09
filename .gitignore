@@ -192,3 +192,4 @@ paper/
 # --- 新增的排除项 (AI 建议) ---
 *.pdf
 .vscode/
+raw_datasets/

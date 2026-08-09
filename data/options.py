@@ -9,7 +9,7 @@ def option():
     parser.add_argument('--batchSize', type=int, default=16, help='training batch size')
     parser.add_argument('--cropSize', type=int, default=256, help='image crop size (patch size)')
     parser.add_argument('--eval_size', type=int, default=512, help='image resize size for evaluation (0 for original size)')
-    parser.add_argument('--nEpochs', type=int, default=1000, help='number of epochs to train for end')
+    parser.add_argument('--nEpochs', type=int, default=500, help='number of epochs to train for end')
     parser.add_argument('--start_epoch', type=int, default=0, help='number of epochs to start, >0 is retrained a pre-trained pth')
     parser.add_argument('--snapshots', type=int, default=10, help='Snapshots for save checkpoints pth')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning Rate')
@@ -88,17 +88,17 @@ def option():
     parser.add_argument('--grad_clip', type=bool, default=True)     # 梯度裁剪
     
     # ========== 双空间CIDNet配置 ==========
-    parser.add_argument('--dual_space', type=bool, default=True, 
+    parser.add_argument('--dual_space', type=bool, default=False, 
                         help='是否使用DualSpaceCIDNet（v3: CIDNet + RGB后处理）')
     
     # ========== RGB后处理配置 ==========
-    parser.add_argument('--use_rgb_refiner', type=bool, default=True,
+    parser.add_argument('--use_rgb_refiner', type=bool, default=False,
                         help='是否启用RGB后处理微调（消融实验可关闭）')
     parser.add_argument('--refiner_mid_ch', type=int, default=64,
                         help='RGB Refiner中间层通道数')
     
     # ========== 神经曲线层消融实验 ==========
-    parser.add_argument('--use_curve', type=bool, default=True,
+    parser.add_argument('--use_curve', type=bool, default=False,
                         help='是否使用神经曲线层对I通道进行全局调整（消融实验）')
     parser.add_argument('--curve_M', type=int, default=11,
                         help='曲线控制点数量')
@@ -113,7 +113,7 @@ def option():
     parser.add_argument('--SICE_mix', type=bool, default=False)
     parser.add_argument('--SICE_grad', type=bool, default=False)
     parser.add_argument('--fivek', type=bool, default=False)
-    parser.add_argument('--LoLI_Street', type=bool, default=True,
+    parser.add_argument('--LoLI_Street', type=bool, default=False,
                         help='仅使用 LoLI-Street 低光照数据集训练与验证')
     parser.add_argument('--combined_pedestrian', type=bool, default=False,
                         help='使用合并行人数据集（LoLI低光照+Cityscapes雾天+雨天）')
@@ -121,7 +121,7 @@ def option():
     # ========== DA-MambaNet 专用配置 ==========
     # DA-MambaNet 是本项目的核心模型，使用退化感知 + Mamba 状态空间模型的混合架构
     # 设为 True 时会替代 CIDNet / DualSpaceCIDNet 进行训练
-    parser.add_argument('--da_mamba', type=bool, default=False,
+    parser.add_argument('--da_mamba', type=bool, default=True,
                         help='是否使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
     # 退化类型数量，对应 DAM 模块的分类头输出维度
     # 必须与 allinone_dataset.py 中的标签映射一致：0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
@@ -141,7 +141,7 @@ def option():
     # AllInOne 模式：将 5 种退化类型的数据集混合为一个统一的训练集
     # 每个样本会携带退化类型标签（0-4），供 DAM 分类辅助损失使用
     # 与 --da_mamba True 配合使用，实现"一个模型处理所有退化"的 All-in-One 训练
-    parser.add_argument('--allinone', type=bool, default=False,
+    parser.add_argument('--allinone', type=bool, default=True,
                         help='是否使用 AllInOne 混合数据集（低光+雾+雨+雪+模糊五合一）')
     # 平衡模式：对各退化类别进行过采样/欠采样，使每种类型的样本数相同
     # 适用于各退化数据集样本数差异较大的情况（如 LOLv1=485 vs GoPro=2103）
@@ -149,15 +149,15 @@ def option():
                         help='是否按退化类别平衡 AllInOne 数据集')
     # 低光照训练集（支持多个路径，用逗号分隔）
     parser.add_argument('--data_lol_dirs', type=str,
-                        default='./datasets/LOLv1/train,./datasets/LOLv2/Real_captured/Train',
+                        default='./datasets/LOLv1/train',
                         help='低光照训练集路径，多个用逗号分隔')
     # 雾天训练集
     parser.add_argument('--data_fog_dirs', type=str,
-                        default='./datasets/cityscapes_foggy/train',
+                        default='./datasets/Fog_train',
                         help='雾天训练集路径，多个用逗号分隔')
     # 雨天训练集
     parser.add_argument('--data_rain_dirs', type=str,
-                        default='./datasets/Rain100H/train,./datasets/Rain100L/train',
+                        default='./datasets/Rain_train',
                         help='雨天训练集路径，多个用逗号分隔')
     # 雪天训练集
     parser.add_argument('--data_snow_dirs', type=str,
@@ -165,7 +165,7 @@ def option():
                         help='雪天训练集路径，多个用逗号分隔')
     # 运动模糊训练集
     parser.add_argument('--data_blur_dirs', type=str,
-                        default='./datasets/GoPro/train',
+                        default='./datasets/GoPro_train',
                         help='运动模糊训练集路径，多个用逗号分隔')
     # 验证集（每种退化类型一个路径）
     parser.add_argument('--data_lol_val', type=str,
@@ -181,7 +181,7 @@ def option():
                         default='./datasets/Snow_val',
                         help='雪天验证集路径')
     parser.add_argument('--data_blur_val', type=str,
-                        default='./datasets/GoPro/test',
+                        default='./datasets/GoPro_val',
                         help='运动模糊验证集路径')
 
     return parser
