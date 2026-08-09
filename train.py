@@ -165,11 +165,18 @@ def train(epoch, writer=None):
                 
 
 def checkpoint(epoch):
-    if not os.path.exists("./weights"):          
-        os.mkdir("./weights") 
-    if not os.path.exists("./weights/train"):          
-        os.mkdir("./weights/train")  
-    model_out_path = "./weights/train/epoch_{}.pth".format(epoch)
+    os.makedirs("./weights/train", exist_ok=True)
+    if opt.da_mamba:
+        tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
+        if str(opt.channels_mode) == '24':
+            tag = f"{tag}_ch24"
+        filename = f"{tag}_epoch_{epoch}.pth"
+    elif opt.dual_space:
+        filename = f"DualSpaceCIDNet_epoch_{epoch}.pth"
+    else:
+        filename = f"CIDNet_epoch_{epoch}.pth"
+
+    model_out_path = os.path.join("./weights/train", filename)
     torch.save(model.state_dict(), model_out_path)
     print("Checkpoint saved to {}".format(model_out_path))
     return model_out_path
@@ -347,9 +354,25 @@ def build_model():
     print(f'===> 模型参数量: {total_params/1e6:.3f}M')
 
     if opt.start_epoch > 0:
-        pth = f"./weights/train/epoch_{opt.start_epoch}.pth"
-        model.load_state_dict(torch.load(pth, map_location=lambda storage, loc: storage))
-        print(f'===> 已加载预训练模型: {pth}')
+        if opt.da_mamba:
+            tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
+            if str(opt.channels_mode) == '24':
+                tag = f"{tag}_ch24"
+            pth = f"./weights/train/{tag}_epoch_{opt.start_epoch}.pth"
+        elif opt.dual_space:
+            pth = f"./weights/train/DualSpaceCIDNet_epoch_{opt.start_epoch}.pth"
+        else:
+            pth = f"./weights/train/CIDNet_epoch_{opt.start_epoch}.pth"
+
+        if not os.path.exists(pth):
+            # 回退尝试通用路径
+            pth = f"./weights/train/epoch_{opt.start_epoch}.pth"
+
+        if os.path.exists(pth):
+            model.load_state_dict(torch.load(pth, map_location=lambda storage, loc: storage))
+            print(f'===> 已成功加载预训练模型权重: {pth}')
+        else:
+            print(f'  [警告] 未找到指定 epoch_{opt.start_epoch} 的预训练权重文件: {pth}')
     return model
 
 def make_scheduler():
