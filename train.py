@@ -167,7 +167,7 @@ def train(epoch, writer=None):
 def checkpoint(epoch):
     os.makedirs("./weights/train", exist_ok=True)
     if opt.da_mamba:
-        tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
+        tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_cls{opt.dam_cls_weight}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
         if str(opt.channels_mode) == '24':
             tag = f"{tag}_ch24"
         filename = f"{tag}_epoch_{epoch}.pth"
@@ -355,7 +355,7 @@ def build_model():
 
     if opt.start_epoch > 0:
         if opt.da_mamba:
-            tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
+            tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_cls{opt.dam_cls_weight}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
             if str(opt.channels_mode) == '24':
                 tag = f"{tag}_ch24"
             pth = f"./weights/train/{tag}_epoch_{opt.start_epoch}.pth"
