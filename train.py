@@ -616,23 +616,36 @@ if __name__ == '__main__':
     
     # 保存所有指标到Markdown文件
     now = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    with open(f"./results/metrics/metrics{now}.md", "w") as f:
-        f.write("dataset: "+ output_folder + "\n")  
-        f.write("dual_space: " + str(opt.dual_space) + "\n")
-        f.write("use_rgb_refiner: " + str(opt.use_rgb_refiner) + "\n")
-        f.write("refiner_mid_ch: " + str(opt.refiner_mid_ch) + "\n")
-        f.write("use_curve: " + str(opt.use_curve) + "\n")
-        f.write("curve_M: " + str(opt.curve_M) + "\n")
-        f.write(f"lr: {opt.lr}\n")  
-        f.write(f"batch size: {opt.batchSize}\n")  
-        f.write(f"accum_steps: {opt.accum_steps}\n")
-        f.write(f"crop size: {opt.cropSize}\n")  
-        f.write(f"HVI_weight: {opt.HVI_weight}\n")  
-        f.write(f"L1_weight: {opt.L1_weight}\n")  
-        f.write(f"D_weight: {opt.D_weight}\n")  
-        f.write(f"E_weight: {opt.E_weight}\n")  
-        f.write(f"P_weight: {opt.P_weight}\n")
-        f.write(f"TensorBoard日志: {log_dir}\n\n")
+    os.makedirs("./results/metrics", exist_ok=True)
+    with open(f"./results/metrics/metrics{now}.md", "w", encoding="utf-8") as f:
+        f.write("# DA-MambaNet 训练评估报告 (Metrics Report)\n\n")
+        f.write(f"- **评估时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"- **输出目录**: `{output_folder}`\n")
+        f.write(f"- **TensorBoard 日志**: `{log_dir}`\n\n")
+        
+        f.write("## 1. 结构消融实验开关 (Ablation Switches)\n\n")
+        f.write("| 消融维度 | 配置变量 | 当前值 | 含义/设计说明 |\n")
+        f.write("|---------|---------|-------|--------------|\n")
+        f.write(f"| **退化感知** | `use_dam` | `{opt.use_dam}` | 是否开启 DAM 预测退化类型与程度 |\n")
+        f.write(f"| **条件调制** | `use_film` | `{opt.use_film}` | 是否开启 FiLM 特征仿射变换调制 |\n")
+        f.write(f"| **扫描策略** | `scan_mode` | `{opt.scan_mode}` | `hetero`(HV-2向/I-4向), `all_2way`, `all_4way` |\n")
+        f.write(f"| **RGB后处理** | `use_rgb_refiner` | `{opt.use_rgb_refiner}` | RGB 空间残差微调（常驻基础模块） |\n\n")
+
+        f.write("## 2. 超参数敏感性分析配置 (Hyperparameter Sensitivity)\n\n")
+        f.write("| 超参数 | 配置变量 | 当前值 | 说明与取值范围 |\n")
+        f.write("|-------|---------|-------|--------------|\n")
+        f.write(f"| **SSM 隐状态维度** | `d_state` | `{opt.d_state}` | Mamba SSM 隐状态维度 N (可选: 8, 16, 32, 64) |\n")
+        f.write(f"| **通道扩展倍数** | `expand` | `{opt.expand}` | Mamba 内部通道扩展倍数 E (可选: 1.5, 2.0, 3.0) |\n")
+        f.write(f"| **分类辅助权重** | `dam_cls_weight` | `{opt.dam_cls_weight}` | DAM 分类辅助损失权重 λ_cls (可选: 0.0, 0.1, 0.5) |\n")
+        f.write(f"| **通道规模模式** | `channels_mode` | `{opt.channels_mode}` | 基础通道模式 (36: [36,36,72,144] ~4.45M / 24: [24,24,48,96] ~2.09M) |\n\n")
+
+        f.write("## 3. 基础训练超参数 (Training Hyperparameters)\n\n")
+        f.write(f"- **学习率 (lr)**: `{opt.lr}`\n")
+        f.write(f"- **批次大小 (batchSize)**: `{opt.batchSize}`\n")
+        f.write(f"- **梯度累加 (accum_steps)**: `{opt.accum_steps}`\n")
+        f.write(f"- **裁剪尺寸 (cropSize)**: `{opt.cropSize}`\n")
+        f.write(f"- **验证集每类上限 (max_val_samples)**: `{opt.max_val_samples}`\n")
+        f.write(f"- **损失函数权重**: HVI=`{opt.HVI_weight}`, L1=`{opt.L1_weight}`, D=`{opt.D_weight}`, E=`{opt.E_weight}`, P=`{opt.P_weight}`\n\n")
         
         # 最佳结果汇总
         best_psnr_idx = psnr.index(max(psnr))
