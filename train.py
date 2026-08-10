@@ -165,9 +165,11 @@ def train(epoch, writer=None):
                 
 
 def checkpoint(epoch):
+    """保存模型权重，文件名自动标注超参配置与消融开关"""
     os.makedirs("./weights/train", exist_ok=True)
     if opt.da_mamba:
-        tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_cls{opt.dam_cls_weight}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
+        # 文件名格式: DAMamba_ds<d_state>_dc<d_conv>_dam<0/1>_film<0/1>_<scan_mode>[_ch24]_epoch_<N>.pth
+        tag = f"DAMamba_ds{opt.d_state}_dc{opt.d_conv}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
         if str(opt.channels_mode) == '24':
             tag = f"{tag}_ch24"
         filename = f"{tag}_epoch_{epoch}.pth"
@@ -314,7 +316,8 @@ def build_model():
             print('  - 通道模式: 36 (标准模式 [36,36,72,144], ~4.45M)')
 
         print(f'  - num_classes={opt.num_classes}（退化类型数：{opt.num_classes}）')
-        print(f'  - d_state={opt.d_state}, expand={opt.expand}（Mamba SSM 状态维度与通道扩展）')
+        print(f'  - d_state={opt.d_state}, d_conv={opt.d_conv}（Mamba SSM 状态维度与因果卷积核）')
+        print(f'  - expand=2（固定值）, dam_cls_weight={opt.dam_cls_weight}（固定值）')
         print(f'  - 消融配置: DAM={opt.use_dam}, FiLM={opt.use_film}, scan_mode={opt.scan_mode}')
         if opt.use_rgb_refiner:
             print(f'  - RGB Refiner: 启用（mid_ch={opt.refiner_mid_ch}）')
@@ -323,8 +326,8 @@ def build_model():
             channels       = base_channels,
             num_classes    = opt.num_classes,
             d_state        = opt.d_state,
-            d_conv         = 4,
-            expand         = int(opt.expand),
+            d_conv         = opt.d_conv,
+            expand         = 2,
             use_rgb_refiner= opt.use_rgb_refiner,
             refiner_mid_ch = opt.refiner_mid_ch,
             use_dam        = opt.use_dam,
@@ -355,7 +358,7 @@ def build_model():
 
     if opt.start_epoch > 0:
         if opt.da_mamba:
-            tag = f"DAMamba_ds{opt.d_state}_exp{opt.expand}_cls{opt.dam_cls_weight}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
+            tag = f"DAMamba_ds{opt.d_state}_dc{opt.d_conv}_dam{1 if opt.use_dam else 0}_film{1 if opt.use_film else 0}_{opt.scan_mode}"
             if str(opt.channels_mode) == '24':
                 tag = f"{tag}_ch24"
             pth = f"./weights/train/{tag}_epoch_{opt.start_epoch}.pth"
@@ -657,10 +660,15 @@ if __name__ == '__main__':
         f.write("## 2. 超参数敏感性分析配置 (Hyperparameter Sensitivity)\n\n")
         f.write("| 超参数 | 配置变量 | 当前值 | 说明与取值范围 |\n")
         f.write("|-------|---------|-------|--------------|\n")
-        f.write(f"| **SSM 隐状态维度** | `d_state` | `{opt.d_state}` | Mamba SSM 隐状态维度 N (可选: 8, 16, 32, 64) |\n")
-        f.write(f"| **通道扩展倍数** | `expand` | `{opt.expand}` | Mamba 内部通道扩展倍数 E (可选: 1.5, 2.0, 3.0) |\n")
-        f.write(f"| **分类辅助权重** | `dam_cls_weight` | `{opt.dam_cls_weight}` | DAM 分类辅助损失权重 λ_cls (可选: 0.0, 0.1, 0.5) |\n")
-        f.write(f"| **通道规模模式** | `channels_mode` | `{opt.channels_mode}` | 基础通道模式 (36: [36,36,72,144] ~4.45M / 24: [24,24,48,96] ~2.09M) |\n\n")
+        f.write(f"| **SSM 隐状态维度** | `d_state` | `{opt.d_state}` | 长距离记忆容量 N (可选: 8, 16, 32) |\n")
+        f.write(f"| **因果卷积核大小** | `d_conv` | `{opt.d_conv}` | 短程局部感受野 K (可选: 2, 3, 4, 5) |\n\n")
+
+        f.write("## 2.1 固定超参数 (Fixed Hyperparameters)\n\n")
+        f.write("| 超参数 | 配置变量 | 固定值 | 固定原因 |\n")
+        f.write("|-------|---------|-------|---------|\n")
+        f.write(f"| **通道扩展倍数** | `expand` | `2` | 与 channels_mode 冗余，Mamba 系列论文均固定为 2 |\n")
+        f.write(f"| **分类辅助权重** | `dam_cls_weight` | `{opt.dam_cls_weight}` | 训练策略参数，AllInOneDataset 自带标签，固定 0.1 |\n")
+        f.write(f"| **通道规模模式** | `channels_mode` | `{opt.channels_mode}` | 架构设计常量 (36: [36,36,72,144] ~4.45M) |\n\n")
 
         f.write("## 3. 基础训练超参数 (Training Hyperparameters)\n\n")
         f.write(f"- **学习率 (lr)**: `{opt.lr}`\n")

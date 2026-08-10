@@ -127,17 +127,20 @@ def option():
     # 必须与 allinone_dataset.py 中的标签映射一致：0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
     parser.add_argument('--num_classes', type=int, default=5,
                         help='退化类型分类数（5类: 低光/雾/雨/雪/模糊）')
-    # Mamba SSM 的隐状态维度，控制模型对长距离依赖的记忆容量
-    # 推荐值：16（轻量）或 32（更强表达力但显存占用增大）
+    # ========== DA-MambaNet 超参数敏感性分析维度（仅 d_state 和 d_conv）==========
+    # 【敏感性分析维度1】Mamba SSM 的隐状态维度 N，控制长距离依赖的记忆容量
+    # 推荐取值范围：{8, 16, 32}，默认 16
     parser.add_argument('--d_state', type=int, default=16,
-                        help='Mamba SSM 状态空间维度（越大记忆容量越强，计算量越大）')
-    parser.add_argument('--expand', type=float, default=2.0,
-                        help='Mamba 内部通道扩展倍数 E（默认 2.0，可选 1.5, 2.0, 3.0）')
-    # DAM 分类辅助损失：利用退化类型标签监督 DAM 模块的退化分类
-    # 设为 0 时 DAM 仅通过主恢复损失间接学习退化表征（无监督模式）
-    # 设为 0.1 时加入交叉熵辅助损失，加速 DAM 收敛（需要数据集提供标签）
+                        help='【敏感性分析】Mamba SSM 状态空间维度 N（可选: 8, 16, 32）')
+    # 【敏感性分析维度2】Mamba 因果卷积核大小，控制短程局部感受野
+    # 推荐取值范围：{2, 3, 4, 5}，默认 4
+    parser.add_argument('--d_conv', type=int, default=4,
+                        help='【敏感性分析】Mamba 因果卷积核大小（可选: 2, 3, 4, 5）')
+    # ========== 以下为固定超参（经分析后不作为敏感性分析对象）==========
+    # expand 固定为 2：与 channels_mode 作用冗余，且 Mamba 原论文及所有视觉 Mamba 工作均固定为 2
+    # dam_cls_weight 固定为 0.1：属于训练策略而非模型架构参数，AllInOneDataset 自带标签，0.1 为推荐值
     parser.add_argument('--dam_cls_weight', type=float, default=0.1,
-                        help='DAM 分类辅助损失权重（0表示禁用，推荐有标签时设为0.1）')
+                        help='DAM 分类辅助损失权重（固定 0.1，AllInOneDataset 自动提供标签）')
 
     # ========== DA-MambaNet 一键消融实验配置 ==========
     parser.add_argument('--use_dam', type=bool, default=True,
