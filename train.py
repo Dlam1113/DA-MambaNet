@@ -728,7 +728,7 @@ if __name__ == '__main__':
         f.write("| 超参数 | 配置变量 | 当前值 | 说明与取值范围 |\n")
         f.write("|-------|---------|-------|--------------|\n")
         f.write(f"| **SSM 隐状态维度** | `d_state` | `{opt.d_state}` | 长距离记忆容量 N (可选: 8, 16, 32) |\n")
-        f.write(f"| **因果卷积核大小** | `d_conv` | `{opt.d_conv}` | 短程局部感受野 K (可选: 2, 3, 4, 5) |\n\n")
+        f.write(f"| **因果卷积核大小** | `d_conv` | `{opt.d_conv}` | 短程局部感受野 K (可选: 2, 3, 4) |\n\n")
 
         f.write("## 2.1 固定超参数 (Fixed Hyperparameters)\n\n")
         f.write("| 超参数 | 配置变量 | 固定值 | 固定原因 |\n")

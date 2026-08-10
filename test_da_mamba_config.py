@@ -1,5 +1,7 @@
-"""DA-MambaNet 命令行布尔解析与消融配置回归测试。"""
+"""DA-MambaNet 命令行参数、服务器兼容范围与消融配置回归测试。"""
 
+import contextlib
+import io
 import unittest
 
 import torch
@@ -38,6 +40,28 @@ class TestBooleanOptions(unittest.TestCase):
         self.assertTrue(args.shuffle)
         self.assertTrue(args.allinone)
         self.assertTrue(args.grad_clip)
+
+
+class TestDConvOptions(unittest.TestCase):
+    """验证 d_conv 默认值和服务器 CUDA 内核兼容范围。"""
+
+    def test_default_is_four(self):
+        """确认未传参时使用 causal_conv1d 兼容的默认宽度4。"""
+        args = option().parse_args([])
+        self.assertEqual(args.d_conv, 4)
+
+    def test_widths_two_to_four_are_allowed(self):
+        """确认敏感性实验允许使用宽度2、3、4。"""
+        for width in (2, 3, 4):
+            with self.subTest(width=width):
+                args = option().parse_args(['--d_conv', str(width)])
+                self.assertEqual(args.d_conv, width)
+
+    def test_width_five_is_rejected_before_model_creation(self):
+        """确认不兼容宽度5会在命令行解析阶段被拒绝。"""
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                option().parse_args(['--d_conv', '5'])
 
 
 class TestAblationPropagation(unittest.TestCase):

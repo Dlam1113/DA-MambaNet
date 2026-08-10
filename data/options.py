@@ -151,9 +151,10 @@ def option():
     parser.add_argument('--d_state', type=int, default=32,
                         help='【敏感性分析】Mamba SSM 状态空间维度 N（可选: 8, 16, 32）')
     # 【敏感性分析维度2】Mamba 因果卷积核大小，控制短程局部感受野
-    # 推荐取值范围：{2, 3, 4, 5}，默认 4
-    parser.add_argument('--d_conv', type=int, default=5,
-                        help='【敏感性分析】Mamba 因果卷积核大小（可选: 2, 3, 4, 5）')
+    # causal_conv1d_cuda 仅支持宽度 2～4，因此在命令行解析阶段拒绝不兼容取值
+    # 推荐取值范围：{2, 3, 4}，默认 4
+    parser.add_argument('--d_conv', type=int, choices=[2, 3, 4], default=4,
+                        help='【敏感性分析】Mamba 因果卷积核大小（可选: 2, 3, 4；默认: 4）')
     # ========== 以下为固定超参（经分析后不作为敏感性分析对象）==========
     # expand 固定为 2：与 channels_mode 作用冗余，且 Mamba 原论文及所有视觉 Mamba 工作均固定为 2
     # dam_cls_weight 固定为 0.1：属于训练策略而非模型架构参数，AllInOneDataset 自带标签，0.1 为推荐值
