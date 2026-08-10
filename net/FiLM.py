@@ -2,8 +2,13 @@
 FiLM 生成器模块（Feature-wise Linear Modulation Generator）
 
 功能：
-    将退化感知模块（DAM）输出的4维条件向量 d ∈ R^4
+    将 DA-MambaNet 的6维条件向量
+    d = [p_lowlight, p_fog, p_rain, p_snow, p_blur, z_continuous]
     转换为用于调制特征图的缩放系数 γ 和平移系数 β。
+
+    z_continuous 是取值位于[0,1]的连续退化潜变量，由最终图像恢复损失
+    沿 FiLM 路径间接学习。它用于补充离散类别概率，不代表经过校准的
+    真实退化严重程度，也不保证与人工定义的退化强度单调对应。
 
     调制公式：FiLM(F | γ, β) = γ ⊙ F + β
     
@@ -18,7 +23,7 @@ FiLM 生成器模块（Feature-wise Linear Modulation Generator）
     - FiLM 无需放在归一化层后，可灵活插入网络任意位置
 
 在 DA-MambaNet 中的使用方式：
-    d = DAM(x)                          # (B, 4)
+    d = DAM(x)                          # (B, 6)
     gamma, beta = FiLMGenerator(d)      # 各 (B, C)
     feat = Mamba(x)                     # (B, C, H, W)
     feat = gamma[:, :, None, None] * feat + beta[:, :, None, None]  # FiLM 调制
@@ -43,7 +48,7 @@ class FiLMGenerator(nn.Module):
     
     参数：
         channels:   待调制特征图的通道数（输出 γ 和 β 的维度各为 channels）
-        cond_dim:   条件向量维度，默认4（来自 DAM 输出）
+        cond_dim:   条件向量维度；为兼容通用用法默认4，DA-MambaNet 显式传入6
         hidden_dim: 隐层维度，默认 max(channels // 4, 16)，控制生成器复杂度
     
     注意：
@@ -117,8 +122,8 @@ class FiLMLayer(nn.Module):
     FiLM 调制层（将 FiLMGenerator 和特征调制操作封装为一个整体）
     
     用法：
-        film = FiLMLayer(channels=36, cond_dim=4)
-        feat_out = film(feat, d)  # feat: (B,C,H,W), d: (B,4)
+        film = FiLMLayer(channels=36, cond_dim=6)
+        feat_out = film(feat, d)  # feat: (B,C,H,W), d: (B,6)
     
     参数：
         channels:  特征通道数
@@ -167,7 +172,7 @@ if __name__ == '__main__':
 
     batch_size = 2
     channels   = 36    # HV 流第一层通道数
-    cond_dim   = 4     # DAM 输出维度
+    cond_dim   = 6     # DA-MambaNet：5类概率 + 1维连续退化潜变量
 
     # ---- 测试1：FiLMGenerator 基本测试 ----
     print("\n[测试1] FiLMGenerator 基本测试")
@@ -213,16 +218,16 @@ if __name__ == '__main__':
     # ---- 测试4：参数量统计 ----
     print("\n[测试4] 参数量统计（不同通道数）")
     for ch in [36, 72, 144]:
-        gen_test = FiLMGenerator(channels=ch, cond_dim=4)
+        gen_test = FiLMGenerator(channels=ch, cond_dim=6)
         params = sum(p.numel() for p in gen_test.parameters())
         print(f"  channels={ch:3d}: FiLMGenerator 参数量 = {params:,}")
     print("  [OK] 通过")
 
     # ---- 测试5：梯度流测试 ----
     print("\n[测试5] 梯度流测试")
-    film_grad = FiLMLayer(channels=36, cond_dim=4)
+    film_grad = FiLMLayer(channels=36, cond_dim=6)
     feat_g = torch.rand(2, 36, 64, 64)
-    d_g = torch.rand(2, 4, requires_grad=True)
+    d_g = torch.rand(2, 6, requires_grad=True)
     out_g = film_grad(feat_g, d_g)
     loss = out_g.sum()
     loss.backward()

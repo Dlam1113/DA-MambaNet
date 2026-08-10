@@ -655,7 +655,7 @@ if __name__ == '__main__':
         f.write("## 1. 结构消融实验开关 (Ablation Switches)\n\n")
         f.write("| 消融维度 | 配置变量 | 当前值 | 含义/设计说明 |\n")
         f.write("|---------|---------|-------|--------------|\n")
-        f.write(f"| **退化感知** | `use_dam` | `{opt.use_dam}` | 是否开启 DAM 预测退化类型与程度 |\n")
+        f.write(f"| **退化感知** | `use_dam` | `{opt.use_dam}` | 是否开启 DAM 的5类概率与连续退化潜变量条件 |\n")
         f.write(f"| **条件调制** | `use_film` | `{opt.use_film}` | 是否开启 FiLM 特征仿射变换调制 |\n")
         f.write(f"| **扫描策略** | `scan_mode` | `{opt.scan_mode}` | `hetero`(HV-2向/I-4向), `all_2way`, `all_4way` |\n")
         f.write(f"| **RGB后处理** | `use_rgb_refiner` | `{opt.use_rgb_refiner}` | RGB 空间残差微调（常驻基础模块） |\n\n")

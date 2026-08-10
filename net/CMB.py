@@ -310,7 +310,7 @@ class HV_CMB(nn.Module):
 
     参数：
         dim:       特征通道数
-        cond_dim:  退化条件向量维度（来自 DAM，默认4）
+        cond_dim:  退化条件向量维度；通用模块默认4，DA-MambaNet 显式传入6
         d_state:   Mamba SSM 状态维度
         d_conv:    Mamba 内部卷积核大小
         expand:    Mamba 通道扩展倍数
@@ -421,7 +421,7 @@ if __name__ == '__main__':
 
 
     batch_size = 2
-    cond_dim   = 4   # DAM 输出维度
+    cond_dim   = 6   # DA-MambaNet：5类概率 + 1维连续退化潜变量
 
     # ---- 测试1：SS2D（2方向，HV流） ----
     print("\n[测试1] SS2D（2方向扫描，HV 色度流）")
@@ -489,17 +489,17 @@ if __name__ == '__main__':
     # ---- 测试6：参数量汇总 ----
     print("\n[测试6] HV_CMB vs I_CMB 参数量对比")
     for ch in [36, 72, 144]:
-        hv = HV_CMB(dim=ch)
-        i  = I_CMB(dim=ch)
+        hv = HV_CMB(dim=ch, cond_dim=cond_dim)
+        i  = I_CMB(dim=ch, cond_dim=cond_dim)
         hv_p = sum(p.numel() for p in hv.parameters())
         i_p  = sum(p.numel() for p in i.parameters())
         print(f"  dim={ch:3d}: HV_CMB={hv_p:,}  |  I_CMB={i_p:,}  |  I比HV多 {i_p-hv_p:,}")
 
     # ---- 测试7：梯度流检验 ----
     print("\n[测试7] 梯度流检验（确保退化条件向量 d 有梯度）")
-    hv_cmb = HV_CMB(dim=36)
+    hv_cmb = HV_CMB(dim=36, cond_dim=cond_dim)
     x_g = torch.rand(2, 36, 64, 64)
-    d_g = torch.rand(2, 4, requires_grad=True)
+    d_g = torch.rand(2, cond_dim, requires_grad=True)
     out_g = hv_cmb(x_g, d_g)
     out_g.sum().backward()
     assert d_g.grad is not None, "d 没有梯度！"

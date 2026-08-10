@@ -15,7 +15,7 @@ DA-MambaNet：退化感知自适应 Mamba 图像恢复网络
 ┌────────────────────────────────────────────────────────────┐
 │                    DA-MambaNet                              │
 │  CMB Mamba 块：SS2D 全局建模 + FiLM 退化感知调制            │
-│  DAM：自动预测5类退化（低光/雾/雨/雪/模糊）+ 严重程度         │
+│  DAM：5类退化概率 + 1维连续退化潜变量                        │
 │  异构扫描：HV 色度流 2方向 / I 光照流 4方向                  │
 └────────────────────────────────────────────────────────────┘
 
@@ -27,7 +27,8 @@ DA-MambaNet：退化感知自适应 Mamba 图像恢复网络
 整体网络结构（forward 流程）：
     输入 x (B, 3, H, W)
     │
-    ├─ DAM(x) → 条件向量 d (B, 6) = [5类退化概率, s_level]
+    ├─ DAM(x) → 条件向量 d (B, 6)
+    │            = [p_lowlight, p_fog, p_rain, p_snow, p_blur, z_continuous]
     │
     └─ HVI 色彩空间变换 → (B, 3, H, W)
        │
@@ -79,7 +80,8 @@ class DA_MambaNet(nn.Module):
                           默认 [36, 36, 72, 144]，与 DualSpaceCIDNet 一致
         norm:             bool, 是否在编解码器中使用 LayerNorm，默认 False
         num_classes:      int, DAM 退化类型分类数，默认 5（低光/雾/雨/雪/模糊）
-        cond_dim:         int, 退化条件向量维度 = num_classes + 1（分类概率 + 1 个严重程度回归值）
+        cond_dim:         int, 退化条件向量维度 = num_classes + 1
+                          （分类概率 + 1个连续退化潜变量）
         d_state:          int, Mamba SSM 状态空间维度，控制隐状态容量，默认 16
         d_conv:           int, Mamba 内部因果卷积核大小，默认 4
         expand:           int, Mamba 通道内部扩展倍数，默认 2
@@ -98,7 +100,7 @@ class DA_MambaNet(nn.Module):
                  d_conv: int = 4,
                  expand: int = 2,
                  use_rgb_refiner: bool = True,
-                 refiner_mid_ch: int = 32,
+                 refiner_mid_ch: int = 64,
                  use_dam: bool = True,
                  use_film: bool = True,
                  scan_mode: str = 'hetero'):
@@ -245,7 +247,8 @@ class DA_MambaNet(nn.Module):
         Returns:
             output_rgb: 增强/恢复后的图像张量，形状为 (B, 3, H, W)，取值范围 [0, 1]
             d:          退化条件向量，形状为 (B, num_classes+1)
-                        训练时用于计算分类和回归辅助损失，指导 DAM 模块学习
+                        前 num_classes 维接受类别监督；最后1维通过图像恢复损失
+                        沿 FiLM 路径间接学习，不表示经过校准的真实退化严重程度
             dam_logits: 当 return_dam_logits=True 时额外返回，形状为
                         (B, num_classes)，用于 CrossEntropyLoss
 
@@ -260,7 +263,8 @@ class DA_MambaNet(nn.Module):
         # 步骤0：退化感知 → 生成条件向量 d
         # ==============================================================
         # DAM 开启时预测退化条件；关闭时使用全零条件向量作为严格消融对照。
-        # d: (B, num_classes+1) = [各退化类型概率, s_level]
+        # d: (B, 6) = [p_lowlight, p_fog, p_rain, p_snow, p_blur, z_continuous]
+        # 最后一维是连续退化潜变量，不是经过校准的真实强度值。
         dam_logits = None
         if self.use_dam:
             if return_dam_logits:
@@ -414,7 +418,7 @@ if __name__ == '__main__':
 
     batch_size  = 2
     H, W        = 256, 256
-    num_classes = 3
+    num_classes = 5
 
     # ---- 测试1：基本前向传播 ----
     print("\n[测试1] 基本前向传播")
@@ -433,7 +437,7 @@ if __name__ == '__main__':
 
     print(f"  输入:       {x.shape}")
     print(f"  输出 RGB:   {output_rgb.shape}")            # 期望 (2, 3, 256, 256)
-    print(f"  条件向量 d: {d.shape}")                     # 期望 (2, 4)
+    print(f"  条件向量 d: {d.shape}")                     # 期望 (2, 6)
     print(f"  输出范围:   [{output_rgb.min():.4f}, {output_rgb.max():.4f}]")  # 期望 [0, 1]
 
     assert output_rgb.shape == x.shape, "输出 shape 错误！"

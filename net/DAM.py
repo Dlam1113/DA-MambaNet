@@ -3,10 +3,16 @@
 
 功能：
     从退化图像中自动预测：
-    1. 退化类型：[p_rain, p_fog, p_lowlight]（Softmax 概率，3分类）
-    2. 退化程度：s_level ∈ [0, 1]（Sigmoid 连续估计）
+    1. 退化类型：[p_lowlight, p_fog, p_rain, p_snow, p_blur]（Softmax 概率，5分类）
+    2. 连续退化潜变量 z_continuous ∈ [0, 1]（Sigmoid 输出）
 
-    输出的4维条件向量 d = [p_rain, p_fog, p_lowlight, s_level] 供 FiLM 生成器使用。
+    输出的6维条件向量
+    d = [p_lowlight, p_fog, p_rain, p_snow, p_blur, z_continuous]
+    供 FiLM 生成器使用。
+
+    z_continuous 是 continuous degradation latent variable。它没有强度标签，
+    而是由最终图像恢复损失沿 FiLM 路径间接学习，用于补充离散类别概率；
+    它不代表经过校准的真实退化严重程度，也不保证与人工定义的退化强度单调对应。
 
 设计原则：
     - 极轻量：目标参数量 < 0.05M
@@ -93,21 +99,22 @@ class DegradationAwareModule(nn.Module):
         └─ GlobalAvgPool → (B, 64)         # 聚合全局退化信息
            │
            ├─ 分类头：FC(64→32) → ReLU → FC(32→num_classes) → Softmax
-           │  → [p_rain, p_fog, p_lowlight]（退化类型概率）
+           │  → [p_lowlight, p_fog, p_rain, p_snow, p_blur]（退化类型概率）
            │
-           └─ 程度估计头：FC(64→32) → ReLU → FC(32→1) → Sigmoid
-              → s_level ∈ [0,1]（退化严重程度）
+           └─ 连续潜变量头：FC(64→32) → ReLU → FC(32→1) → Sigmoid
+              → z_continuous ∈ [0,1]（连续退化调制变量）
     
-    最终输出拼接：[p_rain, p_fog, p_lowlight, s_level] ∈ R^(num_classes + 1)
+    最终输出拼接：[p_type, z_continuous] ∈ R^(num_classes + 1)
     
     参数：
-        num_classes: 退化类型数量，默认3（雨/雾/低光）
+        num_classes: 退化类型数量，默认5（低光/雾/雨/雪/模糊）
         mid_ch:      中间层通道数，默认32（减小可进一步轻量化）
     
     注意事项：
         - 当 num_classes=1（单任务场景，如只做低光）时，分类头退化为单类概率，
-          此时条件向量为 [p_lowlight, s_level]，FiLM 生成器输入维度需对应修改
+          此时条件向量为 [p_lowlight, z_continuous]，FiLM 生成器输入维度需对应修改
         - 训练时可选加入交叉熵损失做监督，也可纯靠下游任务损失隐式引导
+        - 连续潜变量没有单独的强度监督，仅由恢复目标通过 FiLM 间接学习
     """
 
     def __init__(self, num_classes: int = 5, mid_ch: int = 32):
@@ -139,8 +146,11 @@ class DegradationAwareModule(nn.Module):
             # 注意：Softmax 在 forward 中动态调用（推理）或由 CrossEntropyLoss 外部处理（训练）
         )
 
-        # ===== 退化程度估计头 =====
-        # 输出：0~1 的连续值，0=无退化，1=严重退化
+        # ===== 连续退化潜变量头 =====
+        # 历史兼容说明：成员名 severity_head 必须保留，以兼容已有 checkpoint 的权重键。
+        # 该分支输出一个位于[0,1]的连续退化潜变量。它由图像恢复目标通过FiLM
+        # 间接学习，用于提供类别概率之外的连续条件信息；该数值不代表经过校准的
+        # 真实退化严重程度，也不保证与人工定义的退化强度单调对应。
         self.severity_head = nn.Sequential(
             nn.Linear(64, mid_ch),   # 64 → 32
             nn.ReLU(inplace=True),
@@ -182,13 +192,14 @@ class DegradationAwareModule(nn.Module):
         Returns:
             d (torch.Tensor): 退化条件向量，形状 (B, num_classes + 1)
                - d[:, :num_classes]：退化类型概率（Softmax，和为1）
-               - d[:, -1:]：退化程度估计（Sigmoid，范围[0,1]）
+               - d[:, -1:]：连续退化潜变量（Sigmoid，范围[0,1]）
             当 return_logits=True 时，返回 (d, logits)，其中 logits 专供
             CrossEntropyLoss 使用，避免将 Softmax 概率错误地作为其输入。
         
-        示例（num_classes=3）：
-            d = [0.8, 0.1, 0.1, 0.7]
-                 雨↑   雾   低光  严重程度0.7
+        示例（num_classes=5）：
+            d = [p_lowlight, p_fog, p_rain, p_snow, p_blur, z_continuous]
+
+        注意：z_continuous 只表示网络学习到的连续条件，不是经过校准的真实强度值。
         """
         # 主干特征提取：通过3层深度可分离卷积，逐步下采样并增加通道数
         # 维度变化: (B, 3, H, W) → (B, 16, H/2, W/2) → (B, 32, H/4, W/4) → (B, 64, H/8, W/8)
@@ -207,14 +218,14 @@ class DegradationAwareModule(nn.Module):
         # Softmax归一化公式: p_i = exp(x_i) / sum(exp(x_j))，使得输出概率之和为1
         cls_probs = F.softmax(logits, dim=-1)              
 
-        # 程度估计头：预测退化严重程度
+        # 连续潜变量头：生成类别概率之外的连续调制条件。
         # Sigmoid函数公式: y = 1 / (1 + exp(-x))，将输出压缩至0到1之间
         # 维度变化: (B, 64) → (B, 1)
-        severity = self.severity_head(feat)                 
+        z_continuous = self.severity_head(feat)
 
-        # 拼接 (Concatenate)：在最后一个维度上合并分类概率和程度估计
+        # 拼接 (Concatenate)：在最后一个维度上合并分类概率和连续退化潜变量
         # 维度变化: (B, num_classes) 与 (B, 1) 拼接 → (B, num_classes + 1)
-        d = torch.cat([cls_probs, severity], dim=-1)        
+        d = torch.cat([cls_probs, z_continuous], dim=-1)
 
         if return_logits:
             return d, logits
@@ -230,13 +241,13 @@ class DegradationAwareModule(nn.Module):
             x: 退化输入图像 (B, 3, H, W)
         返回：
             logits: 未归一化分类分数 (B, num_classes)
-            severity: 程度估计 (B, 1)
+            z_continuous: 连续退化潜变量 (B, 1)，不表示经过校准的真实强度
         """
         feat = self.backbone(x)
         feat = self.global_pool(feat).flatten(1)
         logits = self.cls_head(feat)       # 未经 Softmax 的原始分数
-        severity = self.severity_head(feat)
-        return logits, severity
+        z_continuous = self.severity_head(feat)
+        return logits, z_continuous
 
 
 # ==============================================================================
@@ -250,7 +261,7 @@ if __name__ == '__main__':
     # ---- 测试参数 ----
     batch_size = 2
     H, W = 256, 256
-    num_classes = 3  # 雨 / 雾 / 低光
+    num_classes = 5  # 低光 / 雾 / 雨 / 雪 / 模糊
 
     # ---- 构造模型 ----
     model = DegradationAwareModule(num_classes=num_classes, mid_ch=32)
@@ -262,22 +273,22 @@ if __name__ == '__main__':
     with torch.no_grad():
         d = model(x)
     print(f"  输入 shape:  {x.shape}")
-    print(f"  输出 shape:  {d.shape}")        # 期望 (2, 4)
-    print(f"  d[:, :3] 类型概率（和）: {d[:, :3].sum(dim=-1)}")  # 期望近似 tensor([1., 1.])
-    print(f"  d[:, 3:] 程度范围: min={d[:, -1].min():.4f}, max={d[:, -1].max():.4f}")
+    print(f"  输出 shape:  {d.shape}")        # 期望 (2, 6)
+    print(f"  类型概率（和）: {d[:, :num_classes].sum(dim=-1)}")  # 期望近似 tensor([1., 1.])
+    print(f"  连续潜变量范围: min={d[:, -1].min():.4f}, max={d[:, -1].max():.4f}")
     assert d.shape == (batch_size, num_classes + 1), "输出维度错误！"
     assert torch.allclose(d[:, :num_classes].sum(dim=-1), torch.ones(batch_size), atol=1e-5), "概率和不为1！"
-    assert (d[:, -1] >= 0).all() and (d[:, -1] <= 1).all(), "程度估计超出[0,1]范围！"
+    assert (d[:, -1] >= 0).all() and (d[:, -1] <= 1).all(), "连续潜变量超出[0,1]范围！"
     print("  [OK] 通过")
 
     # ---- 测试2：get_logits（训练阶段） ----
     print("\n[测试2] get_logits（训练阶段，用于 CrossEntropyLoss）")
     model.train()
-    logits, severity = model.get_logits(x)
-    print(f"  logits shape:   {logits.shape}")    # 期望 (2, 3)
-    print(f"  severity shape: {severity.shape}")  # 期望 (2, 1)
+    logits, z_continuous = model.get_logits(x)
+    print(f"  logits shape:   {logits.shape}")    # 期望 (2, 5)
+    print(f"  z_continuous shape: {z_continuous.shape}")  # 期望 (2, 1)
     assert logits.shape == (batch_size, num_classes)
-    assert severity.shape == (batch_size, 1)
+    assert z_continuous.shape == (batch_size, 1)
     print("  [OK] 通过")
 
     # ---- 测试3：参数量统计 ----
