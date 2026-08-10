@@ -171,17 +171,20 @@ class DegradationAwareModule(nn.Module):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_logits: bool = False):
         """
-        前向传播：退化图像 → 条件向量
+        前向传播：退化图像 → 条件向量，并可同时返回分类原始 logits。
         
         Args:
             x (torch.Tensor): 退化输入图像，形状 (B, 3, H, W)，数值范围 [0, 1]
+            return_logits (bool): 是否额外返回未经 Softmax 的分类 logits。
         
         Returns:
             d (torch.Tensor): 退化条件向量，形状 (B, num_classes + 1)
                - d[:, :num_classes]：退化类型概率（Softmax，和为1）
                - d[:, -1:]：退化程度估计（Sigmoid，范围[0,1]）
+            当 return_logits=True 时，返回 (d, logits)，其中 logits 专供
+            CrossEntropyLoss 使用，避免将 Softmax 概率错误地作为其输入。
         
         示例（num_classes=3）：
             d = [0.8, 0.1, 0.1, 0.7]
@@ -213,6 +216,8 @@ class DegradationAwareModule(nn.Module):
         # 维度变化: (B, num_classes) 与 (B, 1) 拼接 → (B, num_classes + 1)
         d = torch.cat([cls_probs, severity], dim=-1)        
 
+        if return_logits:
+            return d, logits
         return d
 
     def get_logits(self, x: torch.Tensor):

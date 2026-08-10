@@ -92,11 +92,14 @@ def train(epoch, writer=None):
         # DA_MambaNet：返回 (output_rgb, d)，d 是退化条件向量
         # ===================================================================
         if opt.da_mamba:
-            # DA-MambaNet 返回 (图像, 退化条件向量)
-            output_rgb, deg_cond = model(input_img)
+            # 同一次 DAM 前向同时返回条件概率和原始分类 logits，避免重复计算。
+            output_rgb, deg_cond, dam_logits = model(
+                input_img, return_dam_logits=True
+            )
         else:
             output_rgb = model(input_img)
             deg_cond = None
+            dam_logits = None
 
         output_hvi = model.HVIT(output_rgb)
         gt_hvi = model.HVIT(gt_rgb)
@@ -105,17 +108,17 @@ def train(epoch, writer=None):
         loss = loss_rgb + opt.HVI_weight * loss_hvi
 
         # ===================================================================
-        # DAM 辅助分类损失（仅 DA-MambaNet，可选）
-        # 用 opt.dag_labels 传入退化类型标签（0=雨, 1=雾, 2=低光）
-        # 若数据集未提供标签则跳过（无监督模式下 DAM 仍通过梯度间接学习）
+        # DAM 辅助分类损失（仅在 DA-MambaNet 且 DAM 开启时计算）
+        # batch[4] 标签映射：0=低光、1=雾、2=雨、3=雪、4=模糊
+        # 若关闭 DAM 或数据集未提供标签，则跳过分类辅助损失。
         # ===================================================================
-        if opt.da_mamba and opt.dam_cls_weight > 0 and deg_cond is not None:
+        if (opt.da_mamba and opt.use_dam and opt.dam_cls_weight > 0
+                and dam_logits is not None):
             # batch[4] 为退化类型标签（如有），否则跳过
             if len(batch) > 4 and batch[4] is not None:
                 deg_labels = batch[4].cuda().long()   # (B,) 类别标签
-                # DAM 分类 logits（从 deg_cond[:, :num_classes] 计算）
-                cls_logits = deg_cond[:, :opt.num_classes]
-                loss_cls = F.cross_entropy(cls_logits, deg_labels)
+                # CrossEntropyLoss 必须接收未经 Softmax 的原始分类分数。
+                loss_cls = F.cross_entropy(dam_logits, deg_labels)
                 loss = loss + opt.dam_cls_weight * loss_cls
         
         iter += 1

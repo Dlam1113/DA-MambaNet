@@ -15,7 +15,7 @@ DA-MambaNet：退化感知自适应 Mamba 图像恢复网络
 ┌────────────────────────────────────────────────────────────┐
 │                    DA-MambaNet                              │
 │  CMB Mamba 块：SS2D 全局建模 + FiLM 退化感知调制            │
-│  DAM：自动预测退化类型（雨/雾/低光）+ 严重程度               │
+│  DAM：自动预测5类退化（低光/雾/雨/雪/模糊）+ 严重程度         │
 │  异构扫描：HV 色度流 2方向 / I 光照流 4方向                  │
 └────────────────────────────────────────────────────────────┘
 
@@ -27,7 +27,7 @@ DA-MambaNet：退化感知自适应 Mamba 图像恢复网络
 整体网络结构（forward 流程）：
     输入 x (B, 3, H, W)
     │
-    ├─ DAM(x) → 条件向量 d (B, 4) = [p_rain, p_fog, p_lowlight, s_level]
+    ├─ DAM(x) → 条件向量 d (B, 6) = [5类退化概率, s_level]
     │
     └─ HVI 色彩空间变换 → (B, 3, H, W)
        │
@@ -112,14 +112,19 @@ class DA_MambaNet(nn.Module):
         self.cond_dim = cond_dim
         self.use_dam = use_dam
         self.use_film = use_film
+        self.scan_mode = scan_mode
 
         # 设置多方向扫描模式（消融实验）
         if scan_mode == 'all_2way':
             hv_scan, i_scan = 2, 2
         elif scan_mode == 'all_4way':
             hv_scan, i_scan = 4, 4
-        else:  # 'hetero' 异构模式（HV流2向，I流4向）
+        elif scan_mode == 'hetero':  # 异构模式（HV流2向，I流4向）
             hv_scan, i_scan = 2, 4
+        else:
+            raise ValueError(
+                f"scan_mode 必须是 hetero、all_2way 或 all_4way，当前值为: {scan_mode}"
+            )
 
         # =====================================================================
         #   模块0（可选）：RGB 空间残差微调模块
@@ -192,27 +197,39 @@ class DA_MambaNet(nn.Module):
         # =====================================================================
         # --- 编码阶段（特征提取，从浅到深） ---
         # 第1对：ch2 尺度（1/2 分辨率）
-        self.HV_CMB1 = HV_CMB(dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
-        self.I_CMB1  = I_CMB( dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        self.HV_CMB1 = HV_CMB(dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=hv_scan)
+        self.I_CMB1  = I_CMB( dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=i_scan)
         # 第2对：ch3 尺度（1/4 分辨率）
-        self.HV_CMB2 = HV_CMB(dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
-        self.I_CMB2  = I_CMB( dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        self.HV_CMB2 = HV_CMB(dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=hv_scan)
+        self.I_CMB2  = I_CMB( dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=i_scan)
         # 第3对：ch4 尺度（1/8 分辨率，瓶颈层）
-        self.HV_CMB3 = HV_CMB(dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
-        self.I_CMB3  = I_CMB( dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        self.HV_CMB3 = HV_CMB(dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=hv_scan)
+        self.I_CMB3  = I_CMB( dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=i_scan)
 
         # --- 解码阶段（特征恢复，从深到浅）---
         # 第4对：ch4 尺度（瓶颈层底部）
-        self.HV_CMB4 = HV_CMB(dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
-        self.I_CMB4  = I_CMB( dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        self.HV_CMB4 = HV_CMB(dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=hv_scan)
+        self.I_CMB4  = I_CMB( dim=ch4, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=i_scan)
         # 第5对：ch3 尺度（1/4 分辨率）
-        self.HV_CMB5 = HV_CMB(dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
-        self.I_CMB5  = I_CMB( dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        self.HV_CMB5 = HV_CMB(dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=hv_scan)
+        self.I_CMB5  = I_CMB( dim=ch3, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=i_scan)
         # 第6对：ch2 尺度（1/2 分辨率）
-        self.HV_CMB6 = HV_CMB(dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
-        self.I_CMB6  = I_CMB( dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        self.HV_CMB6 = HV_CMB(dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=hv_scan)
+        self.I_CMB6  = I_CMB( dim=ch2, cond_dim=cond_dim, d_state=d_state, d_conv=d_conv,
+                              expand=expand, use_film=use_film, num_scan=i_scan)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, return_dam_logits: bool = False):
         """
         前向传播
         
@@ -222,11 +239,15 @@ class DA_MambaNet(nn.Module):
         Args:
             x: 退化输入图像张量，形状为 (B, 3, H, W)，取值范围应归一化到 [0, 1]
                其中 B: 批次大小, 3: RGB通道, H: 高度, W: 宽度
+            return_dam_logits: 是否额外返回 DAM 分类头未经 Softmax 的 logits，
+                               仅供训练阶段的分类辅助损失使用
 
         Returns:
             output_rgb: 增强/恢复后的图像张量，形状为 (B, 3, H, W)，取值范围 [0, 1]
             d:          退化条件向量，形状为 (B, num_classes+1)
                         训练时用于计算分类和回归辅助损失，指导 DAM 模块学习
+            dam_logits: 当 return_dam_logits=True 时额外返回，形状为
+                        (B, num_classes)，用于 CrossEntropyLoss
 
         与 DualSpaceCIDNet.forward 的区别：
             - 额外返回条件向量 d（用于计算 DAM 分类损失）
@@ -238,9 +259,16 @@ class DA_MambaNet(nn.Module):
         # ==============================================================
         # 步骤0：退化感知 → 生成条件向量 d
         # ==============================================================
-        # DAM 从退化图像中提取类型概率和严重程度
-        # d: (B, num_classes+1) = [p_rain, p_fog, p_lowlight, s_level]
-        d = self.dam(x)
+        # DAM 开启时预测退化条件；关闭时使用全零条件向量作为严格消融对照。
+        # d: (B, num_classes+1) = [各退化类型概率, s_level]
+        dam_logits = None
+        if self.use_dam:
+            if return_dam_logits:
+                d, dam_logits = self.dam(x, return_logits=True)
+            else:
+                d = self.dam(x)
+        else:
+            d = x.new_zeros((x.shape[0], self.cond_dim))
 
         # ==============================================================
         # 步骤1：RGB → HVI 色彩空间变换
@@ -356,7 +384,11 @@ class DA_MambaNet(nn.Module):
         # 截断到 [0, 1]，防止极端值导致损失计算异常
         output_rgb = torch.clamp(output_rgb, 0, 1)
 
-        # 返回：RGB 输出 + 条件向量（训练时用于辅助损失）
+        # 训练时按需额外返回同一次 DAM 前向产生的原始分类 logits。
+        if return_dam_logits:
+            return output_rgb, d, dam_logits
+
+        # 默认接口保持不变：RGB 输出 + 条件向量。
         return output_rgb, d
 
     def HVIT(self, x: torch.Tensor) -> torch.Tensor:
@@ -490,4 +522,3 @@ if __name__ == '__main__':
     print("\n" + "=" * 65)
     print("所有测试通过！DA-MambaNet 主干网络就绪。")
     print("=" * 65)
-

@@ -1,6 +1,24 @@
 import argparse
 
+
+def str2bool(value):
+    """将命令行中的常见真假字符串可靠地转换为布尔值。"""
+    if isinstance(value, bool):
+        return value
+
+    normalized = value.strip().lower()
+    if normalized in {'true', '1', 'yes', 'y', 'on'}:
+        return True
+    if normalized in {'false', '0', 'no', 'n', 'off'}:
+        return False
+
+    raise argparse.ArgumentTypeError(
+        f"布尔参数必须是 True/False、1/0、Yes/No 或 On/Off，当前值为: {value}"
+    )
+
+
 def option():
+    """创建并返回项目训练与评估所使用的命令行参数解析器。"""
     # Training settings
     # 创建ArgumentParser对象
     parser = argparse.ArgumentParser(description='CIDNet')
@@ -13,18 +31,18 @@ def option():
     parser.add_argument('--start_epoch', type=int, default=0, help='number of epochs to start, >0 is retrained a pre-trained pth')
     parser.add_argument('--snapshots', type=int, default=30, help='Snapshots for save checkpoints pth')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning Rate')
-    parser.add_argument('--gpu_mode', type=bool, default=True)
-    parser.add_argument('--shuffle', type=bool, default=True)
+    parser.add_argument('--gpu_mode', type=str2bool, default=True)
+    parser.add_argument('--shuffle', type=str2bool, default=True)
     parser.add_argument('--threads', type=int, default=16, help='number of threads for dataloader to use')
     parser.add_argument('--accum_steps', type=int, default=1, help='gradient accumulation steps')
 
     # choose a scheduler 学习率调度器的作用是使学习率周期性变化帮助模型跳过局部最优解
-    parser.add_argument('--cos_restart_cyclic', type=bool, default=True)
-    parser.add_argument('--cos_restart', type=bool, default=False)
+    parser.add_argument('--cos_restart_cyclic', type=str2bool, default=True)
+    parser.add_argument('--cos_restart', type=str2bool, default=False)
 
     # warmup training
     parser.add_argument('--warmup_epochs', type=int, default=3, help='warmup_epochs')
-    parser.add_argument('--start_warmup', type=bool, default=True, help='turn False to train without warmup') 
+    parser.add_argument('--start_warmup', type=str2bool, default=True, help='turn False to train without warmup')
 
     # train datasets  训练数据路径
     parser.add_argument('--data_train_lol_blur'     , type=str, default='./datasets/LOL_blur/train')
@@ -79,49 +97,49 @@ def option():
     parser.add_argument('--P_weight',  type=float, default=1e-2)
     
     # use random gamma function (enhancement curve) to improve generalization 使用随机gamma函数提高泛化能力
-    parser.add_argument('--gamma', type=bool, default=True)
+    parser.add_argument('--gamma', type=str2bool, default=True)
     parser.add_argument('--start_gamma', type=int, default=60)
     parser.add_argument('--end_gamma', type=int, default=120)
 
     # auto grad, turn off to speed up training
-    parser.add_argument('--grad_detect', type=bool, default=True)  # 梯度爆炸检测
-    parser.add_argument('--grad_clip', type=bool, default=True)     # 梯度裁剪
+    parser.add_argument('--grad_detect', type=str2bool, default=True)  # 梯度爆炸检测
+    parser.add_argument('--grad_clip', type=str2bool, default=True)     # 梯度裁剪
     
     # ========== 双空间CIDNet配置 ==========
-    parser.add_argument('--dual_space', type=bool, default=False, 
+    parser.add_argument('--dual_space', type=str2bool, default=False,
                         help='是否使用DualSpaceCIDNet（v3: CIDNet + RGB后处理）')
     
     # ========== RGB后处理配置 ==========
-    parser.add_argument('--use_rgb_refiner', type=bool, default=True,
+    parser.add_argument('--use_rgb_refiner', type=str2bool, default=True,
                         help='是否启用RGB后处理微调（默认永久保留开启）')
     parser.add_argument('--refiner_mid_ch', type=int, default=64,
                         help='RGB Refiner中间层通道数')
     
     # ========== 神经曲线层消融实验 ==========
-    parser.add_argument('--use_curve', type=bool, default=False,
+    parser.add_argument('--use_curve', type=str2bool, default=False,
                         help='是否使用神经曲线层对I通道进行全局调整（消融实验）')
     parser.add_argument('--curve_M', type=int, default=11,
                         help='曲线控制点数量')
     
     
     # choose which dataset you want to train, please only set one "True"
-    parser.add_argument('--lol_v1', type=bool, default=False)
-    parser.add_argument('--lolv2_real', type=bool, default=False)
-    parser.add_argument('--lolv2_syn', type=bool, default=False)
-    parser.add_argument('--lol_blur', type=bool, default=False)
-    parser.add_argument('--SID', type=bool, default=False)
-    parser.add_argument('--SICE_mix', type=bool, default=False)
-    parser.add_argument('--SICE_grad', type=bool, default=False)
-    parser.add_argument('--fivek', type=bool, default=False)
-    parser.add_argument('--LoLI_Street', type=bool, default=False,
+    parser.add_argument('--lol_v1', type=str2bool, default=False)
+    parser.add_argument('--lolv2_real', type=str2bool, default=False)
+    parser.add_argument('--lolv2_syn', type=str2bool, default=False)
+    parser.add_argument('--lol_blur', type=str2bool, default=False)
+    parser.add_argument('--SID', type=str2bool, default=False)
+    parser.add_argument('--SICE_mix', type=str2bool, default=False)
+    parser.add_argument('--SICE_grad', type=str2bool, default=False)
+    parser.add_argument('--fivek', type=str2bool, default=False)
+    parser.add_argument('--LoLI_Street', type=str2bool, default=False,
                         help='仅使用 LoLI-Street 低光照数据集训练与验证')
-    parser.add_argument('--combined_pedestrian', type=bool, default=False,
+    parser.add_argument('--combined_pedestrian', type=str2bool, default=False,
                         help='使用合并行人数据集（LoLI低光照+Cityscapes雾天+雨天）')
 
     # ========== DA-MambaNet 专用配置 ==========
     # DA-MambaNet 是本项目的核心模型，使用退化感知 + Mamba 状态空间模型的混合架构
     # 设为 True 时会替代 CIDNet / DualSpaceCIDNet 进行训练
-    parser.add_argument('--da_mamba', type=bool, default=True,
+    parser.add_argument('--da_mamba', type=str2bool, default=True,
                         help='是否使用 DA-MambaNet（退化感知自适应 Mamba 图像恢复网络）')
     # 退化类型数量，对应 DAM 模块的分类头输出维度
     # 必须与 allinone_dataset.py 中的标签映射一致：0=低光, 1=雾, 2=雨, 3=雪, 4=模糊
@@ -143,11 +161,12 @@ def option():
                         help='DAM 分类辅助损失权重（固定 0.1，AllInOneDataset 自动提供标签）')
 
     # ========== DA-MambaNet 一键消融实验配置 ==========
-    parser.add_argument('--use_dam', type=bool, default=True,
+    parser.add_argument('--use_dam', type=str2bool, default=True,
                         help='【消融】是否启用 DAM 退化感知模块（设为 False 时使用零向量代替条件向量）')
-    parser.add_argument('--use_film', type=bool, default=True,
+    parser.add_argument('--use_film', type=str2bool, default=True,
                         help='【消融】是否启用 FiLM 特征条件调制（设为 False 时旁路特征调制）')
     parser.add_argument('--scan_mode', type=str, default='hetero',
+                        choices=['hetero', 'all_2way', 'all_4way'],
                         help='【消融】Mamba 扫描模式：hetero(HV流2向/I流4向异构，默认), all_2way(全2向), all_4way(全4向)')
     parser.add_argument('--channels_mode', type=str, default='36',
                         help='【消融/轻量化】通道数模式：36(即[36,36,72,144], 4.45M), 24(即[24,24,48,96], 2.09M极轻量)')
@@ -156,11 +175,11 @@ def option():
     # AllInOne 模式：将 5 种退化类型的数据集混合为一个统一的训练集
     # 每个样本会携带退化类型标签（0-4），供 DAM 分类辅助损失使用
     # 与 --da_mamba True 配合使用，实现"一个模型处理所有退化"的 All-in-One 训练
-    parser.add_argument('--allinone', type=bool, default=True,
+    parser.add_argument('--allinone', type=str2bool, default=True,
                         help='是否使用 AllInOne 混合数据集（低光+雾+雨+雪+模糊五合一）')
     # 平衡模式：对各退化类别进行过采样/欠采样，使每种类型的样本数相同
     # 适用于各退化数据集样本数差异较大的情况（如 LOLv1=485 vs GoPro=2103）
-    parser.add_argument('--allinone_balance', type=bool, default=False,
+    parser.add_argument('--allinone_balance', type=str2bool, default=False,
                         help='是否按退化类别平衡 AllInOne 数据集')
     # 低光照训练集（支持多个路径，用逗号分隔）
     parser.add_argument('--data_lol_dirs', type=str,
