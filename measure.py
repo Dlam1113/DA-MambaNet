@@ -9,6 +9,7 @@ from PIL import Image
 from tqdm import tqdm
 import argparse
 import platform
+from evaluation_utils import macro_average_class_metrics, resolve_quick_val_class
 
 
 mea_parser = argparse.ArgumentParser(description='Measure')
@@ -71,7 +72,7 @@ def calculate_psnr(target, ref):
     psnr = 10.0 * np.log10(255.0 * 255.0 / (np.mean(np.square(diff)) + 1e-8))
     return psnr
 
-def metrics(im_dir, label_dir, use_GT_mean):
+def metrics(im_dir, label_dir, use_GT_mean, class_prefixes=None):
     """
     计算图像质量评估指标（全参考指标）
     
@@ -79,13 +80,22 @@ def metrics(im_dir, label_dir, use_GT_mean):
         im_dir: 模型输出图像目录
         label_dir: 真值图像目录
         use_GT_mean: 是否使用GT均值校正亮度
+        class_prefixes: 可选的 ``{类别名: 文件名前缀}`` 映射。提供时按类别
+            分别求均值，再返回五类等权宏平均及逐类结果。
     返回:
-        avg_psnr, avg_ssim, avg_lpips
+        默认返回 ``avg_psnr, avg_ssim, avg_lpips``；提供 class_prefixes 时
+        额外返回 ``per_class_metrics``。
     """
     avg_psnr = 0
     avg_ssim = 0
     avg_lpips = 0
     n = 0
+    class_totals = None
+    if class_prefixes is not None:
+        class_totals = {
+            class_name: {'count': 0, 'psnr': 0.0, 'ssim': 0.0, 'lpips': 0.0}
+            for class_name in class_prefixes
+        }
     loss_fn = lpips.LPIPS(net='alex')
     loss_fn.cuda()
     
@@ -146,6 +156,13 @@ def metrics(im_dir, label_dir, use_GT_mean):
         avg_psnr += score_psnr
         avg_ssim += score_ssim
         avg_lpips += score_lpips.item()
+
+        if class_totals is not None:
+            class_name = resolve_quick_val_class(name, class_prefixes)
+            class_totals[class_name]['count'] += 1
+            class_totals[class_name]['psnr'] += score_psnr
+            class_totals[class_name]['ssim'] += score_ssim
+            class_totals[class_name]['lpips'] += score_lpips.item()
         torch.cuda.empty_cache()
     
     # 防止除以零错误
@@ -154,7 +171,15 @@ def metrics(im_dir, label_dir, use_GT_mean):
         print(f"  im_dir: {im_dir}")
         print(f"  label_dir: {label_dir}")
         print(f"  请检查路径是否正确，以及文件扩展名是否匹配")
+        if class_totals is not None:
+            raise ValueError("快速验证集没有找到任何可评估的输出图片")
         return 0, 0, 0
+
+    if class_totals is not None:
+        macro_metrics, per_class_metrics = macro_average_class_metrics(
+            class_totals, tuple(class_prefixes.keys())
+        )
+        return (*macro_metrics, per_class_metrics)
 
     avg_psnr = avg_psnr / n
     avg_ssim = avg_ssim / n

@@ -210,11 +210,12 @@ class AllInOneDataset(data.Dataset):
 
 class AllInOneEvalDataset(data.Dataset):
     """
-    DA-MambaNet 多退化 All-in-One 验证数据集
+    DA-MambaNet 多退化快速验证集（Quick Validation Set）
 
     功能：
-        提供验证时的输入图像，以及对应的 GT 路径用于计算 PSNR/SSIM。
-        可以一次评估所有退化类型，或按退化类型分别评估。
+        提供训练期间快速验证所需的输入图像、GT 路径和类别标签。
+        每个目录按固定排序截取前 max_samples_per_dir 张，用于趋势观察；
+        该固定子集不是论文最终测试集。
 
     参数：
         data_dirs:  验证数据目录列表（每个目录含 low/ 和 high/）
@@ -241,19 +242,23 @@ class AllInOneEvalDataset(data.Dataset):
             lows  = sorted([os.path.join(low_dir,  f) for f in listdir(low_dir)  if is_image_file(f)])
             highs = sorted([os.path.join(high_dir, f) for f in listdir(high_dir) if is_image_file(f)])
 
-            # 如果设置了单个验证集最大数量（如 30），进行截断（LOLv1只有15张不受影响）
+            # 快速验证固定子集：按文件名排序后截取前 N 张。
+            # 该策略保持跨 epoch 一致；LOLv1 只有15张，因此不会被扩充。
             if max_samples_per_dir and max_samples_per_dir > 0:
                 lows  = lows[:max_samples_per_dir]
                 highs = highs[:max_samples_per_dir]
 
             label = labels[i] if labels else -1   # -1 表示未知
-            prefix = os.path.basename(data_dir)
+            prefix = os.path.basename(os.path.normpath(data_dir))
             self.low_files.extend(lows)
             self.high_files.extend(highs)
             self.labels_list.extend([label] * len(lows))
             self.prefix_list.extend([prefix] * len(lows))
 
-        print(f"  [AllInOneEvalDataset] 验证集共 {len(self.low_files)} 张 (每类上限: {max_samples_per_dir if max_samples_per_dir else '无限制'})")
+        print(
+            f"  [Quick Validation Set] 共 {len(self.low_files)} 张 "
+            f"(每类固定排序上限: {max_samples_per_dir if max_samples_per_dir else '无限制'})"
+        )
 
     def __getitem__(self, index):
         """
@@ -338,12 +343,12 @@ def get_allinone_training_set(lol_dirs, fog_dirs, rain_dirs,
 
 def get_allinone_eval_set(val_dirs, labels, max_samples_per_dir=None):
     """
-    构建 DA-MambaNet 多退化验证集。
+    构建 DA-MambaNet 多退化快速验证集（Quick Validation Set）。
 
     参数：
         val_dirs:             验证数据目录列表
         labels:               对应的退化类型标签列表 [0, 1, 2, 3, 4]
-        max_samples_per_dir: 每个验证目录截取的最大样本数（例如30）
+        max_samples_per_dir: 每个目录按固定排序截取的最大样本数（例如30）
     返回：
         AllInOneEvalDataset
     """

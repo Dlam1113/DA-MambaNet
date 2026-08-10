@@ -12,6 +12,11 @@ from net.DualSpaceCIDNet import DualSpaceCIDNet  # 双空间CIDNet
 from net.DA_MambaNet import DA_MambaNet            # DA-MambaNet（退化感知Mamba）
 from data.options import option
 from measure import metrics
+from evaluation_utils import (
+    QUICK_VAL_CLASS_NAMES,
+    should_run_evaluation,
+    summarize_best_metrics,
+)
 from eval import eval
 from data.data import *
 from loss.losses import *
@@ -452,6 +457,11 @@ if __name__ == '__main__':
     ssim = []
     #学习感知图像块相似度（越低越好）
     lpips = []
+    # 记录实际执行评估的 epoch，兼容最后一次非 snapshots 整数倍的兜底评估
+    eval_epochs = []
+    # 保存 All-in-One 快速验证的逐类指标，便于检查宏平均来源
+    quick_val_history = []
+    output_folder = 'not_evaluated/'
     start_epoch=0
     if opt.start_epoch > 0:
         start_epoch = opt.start_epoch
@@ -472,8 +482,9 @@ if __name__ == '__main__':
         epoch_loss, batch_num = train(epoch, writer=writer)
         scheduler.step()  # 通过调度器更新学习率
 
-        if epoch % opt.snapshots == 0:
-            model_out_path = checkpoint(epoch) #每隔opt.snapshots个epoch保存一次模型
+        if should_run_evaluation(epoch, opt.nEpochs, opt.snapshots):
+            # 周期节点或最终 epoch 保存 checkpoint，确保短训练也有可评估权重。
+            model_out_path = checkpoint(epoch)
             # 在验证集上评估模型性能
             norm_size = True #是否将图像归一化（统一）到固定尺寸
 
@@ -537,37 +548,71 @@ if __name__ == '__main__':
                     norm_size=norm_size, LOL=opt.lol_v1, v2=opt.lolv2_real, alpha=0.8)
             
             # ===== 计算评估指标 =====
+            per_class_metrics = None
             if opt.allinone:
-                # AllInOne 多退化混合验证集：自动汇总 5 个退化验证集的 GT 到临时目录计算总指标
+                # AllInOne 快速验证集：每类先独立求均值，再对5类做等权宏平均。
                 import shutil
-                val_gt_dirs = [
-                    opt.data_lol_val,
-                    opt.data_fog_val,
-                    opt.data_rain_val,
-                    opt.data_snow_val,
-                    opt.data_blur_val
-                ]
+                val_gt_dirs = dict(zip(QUICK_VAL_CLASS_NAMES, [
+                    opt.data_lol_val, opt.data_fog_val, opt.data_rain_val,
+                    opt.data_snow_val, opt.data_blur_val
+                ]))
                 combined_gt_dir = os.path.join(im_dir, '_temp_combined_gt')
                 os.makedirs(combined_gt_dir, exist_ok=True)
-                for v_dir in val_gt_dirs:
-                    if not os.path.exists(v_dir):
-                        continue
-                    high_dir = os.path.join(v_dir, 'high')
-                    prefix = os.path.basename(v_dir)
-                    if os.path.isdir(high_dir):
-                        files = sorted([f for f in os.listdir(high_dir) if is_image_file(f)])
+                class_prefixes = {}
+                expected_class_counts = {}
+                try:
+                    for class_name, v_dir in val_gt_dirs.items():
+                        high_dir = os.path.join(v_dir, 'high')
+                        if not os.path.isdir(high_dir):
+                            raise FileNotFoundError(
+                                f"快速验证类别 {class_name} 的 GT 目录不存在: {high_dir}"
+                            )
+
+                        prefix = os.path.basename(os.path.normpath(v_dir))
+                        if prefix in class_prefixes.values():
+                            raise ValueError(f"快速验证目录前缀重复，无法区分类别: {prefix}")
+                        class_prefixes[class_name] = prefix
+
+                        files = sorted([
+                            f for f in os.listdir(high_dir) if is_image_file(f)
+                        ])
                         if opt.max_val_samples and opt.max_val_samples > 0:
                             files = files[:opt.max_val_samples]
-                        for f in files:
-                            src = os.path.join(high_dir, f)
-                            dst_name = f"{prefix}_{f}"
-                            shutil.copy2(src, os.path.join(combined_gt_dir, dst_name))
-                
-                print("\n--- AllInOne 5类多退化混合验证指标 ---")
-                avg_psnr, avg_ssim, avg_lpips = metrics(
-                    im_dir, combined_gt_dir + '/', use_GT_mean=False
-                )
-                shutil.rmtree(combined_gt_dir, ignore_errors=True)
+                        if not files:
+                            raise ValueError(
+                                f"快速验证类别 {class_name} 没有可用 GT 图片: {high_dir}"
+                            )
+                        expected_class_counts[class_name] = len(files)
+
+                        for filename in files:
+                            source = os.path.join(high_dir, filename)
+                            target_name = f"{prefix}_{filename}"
+                            shutil.copy2(source, os.path.join(combined_gt_dir, target_name))
+
+                    print("\n--- AllInOne Quick Validation：5类等权宏平均 ---")
+                    avg_psnr, avg_ssim, avg_lpips, per_class_metrics = metrics(
+                        im_dir,
+                        combined_gt_dir + os.sep,
+                        use_GT_mean=False,
+                        class_prefixes=class_prefixes,
+                    )
+                finally:
+                    shutil.rmtree(combined_gt_dir, ignore_errors=True)
+
+                for class_name in QUICK_VAL_CLASS_NAMES:
+                    class_result = per_class_metrics[class_name]
+                    expected_count = expected_class_counts[class_name]
+                    if class_result['count'] != expected_count:
+                        raise ValueError(
+                            f"快速验证类别 {class_name} 的预测/GT 数量不一致: "
+                            f"预测={class_result['count']}, GT={expected_count}"
+                        )
+                    print(
+                        f"  {class_name:>8s} ({class_result['count']:>2d}张): "
+                        f"PSNR={class_result['psnr']:.4f}, "
+                        f"SSIM={class_result['ssim']:.4f}, "
+                        f"LPIPS={class_result['lpips']:.4f}"
+                    )
             elif opt.combined_pedestrian:
                 # 合并数据集验证：直接在整体合并的 GT 上计算总指标（不再拆分子集）
                 import shutil
@@ -598,19 +643,34 @@ if __name__ == '__main__':
                 # 非合并数据集：直接计算
                 avg_psnr, avg_ssim, avg_lpips = metrics(im_dir, label_dir, use_GT_mean=False)
             
-            print("===> Avg.PSNR: {:.4f} dB ".format(avg_psnr))
-            print("===> Avg.SSIM: {:.4f} ".format(avg_ssim))
-            print("===> Avg.LPIPS: {:.4f} ".format(avg_lpips))
+            metric_name = '5-Class Macro Avg' if opt.allinone else 'Avg'
+            print(f"===> {metric_name}.PSNR: {avg_psnr:.4f} dB")
+            print(f"===> {metric_name}.SSIM: {avg_ssim:.4f}")
+            print(f"===> {metric_name}.LPIPS: {avg_lpips:.4f}")
                 
             # 保存指标到列表（使用整体指标作为模型选择依据）
             psnr.append(avg_psnr)
             ssim.append(avg_ssim)
             lpips.append(avg_lpips)
+            eval_epochs.append(epoch)
+            quick_val_history.append(per_class_metrics)
                 
             # 【TensorBoard记录】记录整体评估指标
             writer.add_scalar('Eval/PSNR', avg_psnr, epoch)
             writer.add_scalar('Eval/SSIM', avg_ssim, epoch)
             writer.add_scalar('Eval/LPIPS', avg_lpips, epoch)
+
+            if per_class_metrics is not None:
+                for class_name, class_result in per_class_metrics.items():
+                    writer.add_scalar(
+                        f'Eval_Quick/{class_name}/PSNR', class_result['psnr'], epoch
+                    )
+                    writer.add_scalar(
+                        f'Eval_Quick/{class_name}/SSIM', class_result['ssim'], epoch
+                    )
+                    writer.add_scalar(
+                        f'Eval_Quick/{class_name}/LPIPS', class_result['lpips'], epoch
+                    )
                 
             # 同时在一个图中显示所有指标的变化趋势
             writer.add_scalars('Eval/All_Metrics', {
@@ -626,19 +686,23 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
     # 【训练完成】关闭TensorBoard写入器
     print("\n===> 训练完成！")
-    
+
+    best_metrics = summarize_best_metrics(eval_epochs, psnr, ssim, lpips)
+
     # 记录最终的最佳结果到TensorBoard
-    if len(psnr) > 0:
-        best_psnr = max(psnr)
-        best_ssim = max(ssim)
-        best_lpips = min(lpips)
-        best_psnr_epoch = (psnr.index(best_psnr) + 1) * opt.snapshots
-        best_ssim_epoch = (ssim.index(best_ssim) + 1) * opt.snapshots
-        best_lpips_epoch = (lpips.index(best_lpips) + 1) * opt.snapshots
-        
-        writer.add_text('Final_Results/Best_PSNR', f'{best_psnr:.4f} at Epoch {best_psnr_epoch}')
-        writer.add_text('Final_Results/Best_SSIM', f'{best_ssim:.4f} at Epoch {best_ssim_epoch}')
-        writer.add_text('Final_Results/Best_LPIPS', f'{best_lpips:.4f} at Epoch {best_lpips_epoch}')
+    if best_metrics is not None:
+        writer.add_text(
+            'Final_Results/Best_PSNR',
+            f"{best_metrics['psnr']['value']:.4f} at Epoch {best_metrics['psnr']['epoch']}",
+        )
+        writer.add_text(
+            'Final_Results/Best_SSIM',
+            f"{best_metrics['ssim']['value']:.4f} at Epoch {best_metrics['ssim']['epoch']}",
+        )
+        writer.add_text(
+            'Final_Results/Best_LPIPS',
+            f"{best_metrics['lpips']['value']:.4f} at Epoch {best_metrics['lpips']['epoch']}",
+        )
     
     writer.close()
     print(f"===> TensorBoard日志已保存到: {log_dir}")
@@ -678,31 +742,76 @@ if __name__ == '__main__':
         f.write(f"- **批次大小 (batchSize)**: `{opt.batchSize}`\n")
         f.write(f"- **梯度累加 (accum_steps)**: `{opt.accum_steps}`\n")
         f.write(f"- **裁剪尺寸 (cropSize)**: `{opt.cropSize}`\n")
-        f.write(f"- **验证集每类上限 (max_val_samples)**: `{opt.max_val_samples}`\n")
+        f.write(f"- **快速验证集每类固定排序上限 (max_val_samples)**: `{opt.max_val_samples}`\n")
         f.write(f"- **损失函数权重**: HVI=`{opt.HVI_weight}`, L1=`{opt.L1_weight}`, D=`{opt.D_weight}`, E=`{opt.E_weight}`, P=`{opt.P_weight}`\n\n")
-        
-        # 最佳结果汇总
-        best_psnr_idx = psnr.index(max(psnr))
-        best_ssim_idx = ssim.index(max(ssim))
-        best_lpips_idx = lpips.index(min(lpips))
-        
-        f.write("## 最佳结果\n\n")
-        f.write(f"- **最佳PSNR**: {max(psnr):.4f} (Epoch {(best_psnr_idx+1)*opt.snapshots})\n")
-        f.write(f"- **最佳SSIM**: {max(ssim):.4f} (Epoch {(best_ssim_idx+1)*opt.snapshots})\n")
-        f.write(f"- **最低LPIPS**: {min(lpips):.4f} (Epoch {(best_lpips_idx+1)*opt.snapshots})\n\n")
-        
-        # 整体指标表格
-        f.write("## 整体 (Combined) 指标\n\n")
-        f.write("| Epochs | PSNR | SSIM | LPIPS |\n")
-        f.write("|--------|------|------|-------|\n")
-        for i in range(len(psnr)):
-            f.write(f"| {opt.start_epoch+(i+1)*opt.snapshots} | {psnr[i]:.4f} | {ssim[i]:.4f} | {lpips[i]:.4f} |\n")
-        
-        # 分子集指标表格已移除（验证阶段仅计算整体指标）
-        
-        f.write(f"\n## 最终结果（整体）\n\n")
-        f.write(f"| 指标 | 最佳值 | 对应Epoch |\n")
-        f.write(f"|------|--------|----------|\n")
-        f.write(f"| PSNR ↑ | {max(psnr):.4f} | {(best_psnr_idx+1)*opt.snapshots} |\n")
-        f.write(f"| SSIM ↑ | {max(ssim):.4f} | {(best_ssim_idx+1)*opt.snapshots} |\n")
-        f.write(f"| LPIPS ↓ | {min(lpips):.4f} | {(best_lpips_idx+1)*opt.snapshots} |\n")
+
+        if best_metrics is not None:
+            # 最佳结果汇总：使用实际评估 epoch，不再假设所有评估都位于 snapshots 整数倍。
+            f.write("## 最佳结果\n\n")
+            f.write(
+                f"- **最佳PSNR**: {best_metrics['psnr']['value']:.4f} "
+                f"(Epoch {best_metrics['psnr']['epoch']})\n"
+            )
+            f.write(
+                f"- **最佳SSIM**: {best_metrics['ssim']['value']:.4f} "
+                f"(Epoch {best_metrics['ssim']['epoch']})\n"
+            )
+            f.write(
+                f"- **最低LPIPS**: {best_metrics['lpips']['value']:.4f} "
+                f"(Epoch {best_metrics['lpips']['epoch']})\n\n"
+            )
+
+            metric_title = (
+                "快速验证集五类等权宏平均指标"
+                if opt.allinone else "整体 (Combined) 指标"
+            )
+            f.write(f"## {metric_title}\n\n")
+            if opt.allinone:
+                f.write(
+                    "> 每类先独立求均值，再对 lowlight/fog/rain/snow/blur 五类等权平均。"
+                    "该结果仅用于训练期间快速验证。\n\n"
+                )
+            f.write("| Epoch | PSNR | SSIM | LPIPS |\n")
+            f.write("|-------|------|------|-------|\n")
+            for index, eval_epoch in enumerate(eval_epochs):
+                f.write(
+                    f"| {eval_epoch} | {psnr[index]:.4f} | "
+                    f"{ssim[index]:.4f} | {lpips[index]:.4f} |\n"
+                )
+
+            if opt.allinone and quick_val_history:
+                f.write("\n## 快速验证集逐类指标\n\n")
+                f.write("| Epoch | 类别 | 样本数 | PSNR | SSIM | LPIPS |\n")
+                f.write("|-------|------|--------|------|------|-------|\n")
+                for index, eval_epoch in enumerate(eval_epochs):
+                    class_metrics = quick_val_history[index]
+                    for class_name in QUICK_VAL_CLASS_NAMES:
+                        class_result = class_metrics[class_name]
+                        f.write(
+                            f"| {eval_epoch} | {class_name} | {class_result['count']} | "
+                            f"{class_result['psnr']:.4f} | {class_result['ssim']:.4f} | "
+                            f"{class_result['lpips']:.4f} |\n"
+                        )
+
+            f.write("\n## 最终结果\n\n")
+            f.write("| 指标 | 最佳值 | 对应Epoch |\n")
+            f.write("|------|--------|----------|\n")
+            f.write(
+                f"| PSNR ↑ | {best_metrics['psnr']['value']:.4f} | "
+                f"{best_metrics['psnr']['epoch']} |\n"
+            )
+            f.write(
+                f"| SSIM ↑ | {best_metrics['ssim']['value']:.4f} | "
+                f"{best_metrics['ssim']['epoch']} |\n"
+            )
+            f.write(
+                f"| LPIPS ↓ | {best_metrics['lpips']['value']:.4f} | "
+                f"{best_metrics['lpips']['epoch']} |\n"
+            )
+        else:
+            # 即使训练区间为空，也生成可读报告，严禁对空列表调用 max()/min()。
+            f.write("## 评估结果\n\n")
+            f.write(
+                "> 本次运行没有产生评估记录。请检查 start_epoch 是否小于 nEpochs，"
+                "以及训练循环是否正常执行。\n"
+            )
