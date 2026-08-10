@@ -148,11 +148,11 @@ def option():
     # ========== DA-MambaNet 超参数敏感性分析维度（仅 d_state 和 d_conv）==========
     # 【敏感性分析维度1】Mamba SSM 的隐状态维度 N，控制长距离依赖的记忆容量
     # 推荐取值范围：{8, 16, 32}，默认 16
-    parser.add_argument('--d_state', type=int, default=16,
+    parser.add_argument('--d_state', type=int, default=32,
                         help='【敏感性分析】Mamba SSM 状态空间维度 N（可选: 8, 16, 32）')
     # 【敏感性分析维度2】Mamba 因果卷积核大小，控制短程局部感受野
     # 推荐取值范围：{2, 3, 4, 5}，默认 4
-    parser.add_argument('--d_conv', type=int, default=4,
+    parser.add_argument('--d_conv', type=int, default=5,
                         help='【敏感性分析】Mamba 因果卷积核大小（可选: 2, 3, 4, 5）')
     # ========== 以下为固定超参（经分析后不作为敏感性分析对象）==========
     # expand 固定为 2：与 channels_mode 作用冗余，且 Mamba 原论文及所有视觉 Mamba 工作均固定为 2
