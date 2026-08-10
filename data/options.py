@@ -6,7 +6,7 @@ def option():
     parser = argparse.ArgumentParser(description='CIDNet')
 
     # 添加各种命令行参数
-    parser.add_argument('--batchSize', type=int, default=8, help='training batch size')
+    parser.add_argument('--batchSize', type=int, default=6, help='training batch size')
     parser.add_argument('--cropSize', type=int, default=256, help='image crop size (patch size)')
     parser.add_argument('--eval_size', type=int, default=512, help='image resize size for evaluation (0 for original size)')
     parser.add_argument('--nEpochs', type=int, default=1200, help='number of epochs to train for end')
@@ -94,7 +94,7 @@ def option():
     # ========== RGB后处理配置 ==========
     parser.add_argument('--use_rgb_refiner', type=bool, default=True,
                         help='是否启用RGB后处理微调（默认永久保留开启）')
-    parser.add_argument('--refiner_mid_ch', type=int, default=32,
+    parser.add_argument('--refiner_mid_ch', type=int, default=64,
                         help='RGB Refiner中间层通道数')
     
     # ========== 神经曲线层消融实验 ==========
