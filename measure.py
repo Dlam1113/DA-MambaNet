@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 import argparse
-import platform
+from data.util import is_image_file
 from evaluation_utils import macro_average_class_metrics, resolve_quick_val_class
 
 
@@ -72,6 +72,44 @@ def calculate_psnr(target, ref):
     psnr = 10.0 * np.log10(255.0 * 255.0 / (np.mean(np.square(diff)) + 1e-8))
     return psnr
 
+
+def discover_metric_images(path_or_pattern):
+    """发现待评估预测图，统一复用项目图像扩展名判定规则。"""
+    if '*' in path_or_pattern:
+        candidates = glob.glob(path_or_pattern)
+    elif os.path.isdir(path_or_pattern):
+        candidates = [
+            entry.path for entry in os.scandir(path_or_pattern)
+            if entry.is_file()
+        ]
+    else:
+        candidates = []
+
+    return sorted([
+        path for path in candidates
+        if os.path.isfile(path) and is_image_file(os.path.basename(path))
+    ])
+
+
+def resolve_gt_image_path(label_dir, prediction_name):
+    """按文件主名匹配 GT，允许预测图和 GT 使用不同的受支持扩展名。"""
+    exact_path = os.path.join(label_dir, prediction_name)
+    if os.path.isfile(exact_path) and is_image_file(prediction_name):
+        return exact_path
+
+    prediction_stem = os.path.splitext(prediction_name)[0]
+    candidates = sorted([
+        entry.path for entry in os.scandir(label_dir)
+        if entry.is_file()
+        and is_image_file(entry.name)
+        and os.path.splitext(entry.name)[0] == prediction_stem
+    ])
+    if not candidates:
+        raise FileNotFoundError(
+            f"找不到预测图 {prediction_name} 对应的 GT 图片: {label_dir}"
+        )
+    return candidates[0]
+
 def metrics(im_dir, label_dir, use_GT_mean, class_prefixes=None):
     """
     计算图像质量评估指标（全参考指标）
@@ -99,40 +137,18 @@ def metrics(im_dir, label_dir, use_GT_mean, class_prefixes=None):
     loss_fn = lpips.LPIPS(net='alex')
     loss_fn.cuda()
     
-    # 支持多种图片格式匹配
-    if '*' in im_dir:
-        im_files = sorted(glob.glob(im_dir))
-    else:
-        im_files = sorted(
-            glob.glob(im_dir + '*.png') + 
-            glob.glob(im_dir + '*.jpg') + 
-            glob.glob(im_dir + '*.JPG') +
-            glob.glob(im_dir + '*.jpeg')
-        )
+    # 使用 data.util.is_image_file 统一发现 PNG/JPG/BMP/TIF/TIFF 等格式。
+    im_files = discover_metric_images(im_dir)
     
     for item in tqdm(im_files):
         n += 1
         
         im1 = Image.open(item).convert('RGB') 
 
-        # 跨平台路径处理（Windows用反斜杠，Linux用斜杠）
-        os_name = platform.system()
-        if os_name.lower() == 'windows':
-            name = item.split('\\')[-1]
-        elif os_name.lower() == 'linux':
-            name = item.split('/')[-1]
-        else:
-            name = item.split('/')[-1]
-        
-        # 尝试多种扩展名匹配GT文件
-        gt_path = label_dir + name
-        if not os.path.exists(gt_path):
-            name_without_ext = os.path.splitext(name)[0]
-            for ext in ['.JPG', '.jpg', '.png', '.PNG', '.jpeg', '.JPEG']:
-                alt_path = label_dir + name_without_ext + ext
-                if os.path.exists(alt_path):
-                    gt_path = alt_path
-                    break
+        name = os.path.basename(item)
+
+        # 允许预测图与 GT 扩展名不同，包括 .tif/.tiff 的大小写组合。
+        gt_path = resolve_gt_image_path(label_dir, name)
         
         im2 = Image.open(gt_path).convert('RGB')
         (h, w) = im2.size

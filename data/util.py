@@ -1,10 +1,13 @@
 
 from PIL import Image
 
+
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+
 def is_image_file(filename):
-    """判断文件是否为支持的图像格式（含 .tif，用于 CSD 数据集）"""
-    return any(filename.endswith(ext) for ext in
-               [".png", ".jpg", ".bmp", ".JPG", ".jpeg", ".tif", ".tiff", ".TIF", ".TIFF"])
+    """不区分扩展名大小写地判断文件是否为项目支持的图像格式。"""
+    return str(filename).lower().endswith(IMAGE_EXTENSIONS)
 
 
 def load_img(filepath):
